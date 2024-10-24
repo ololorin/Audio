@@ -1,4 +1,5 @@
 ﻿using Audio.Entries;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Audio.Chunks.Types.HIRC;
@@ -30,8 +31,8 @@ public record DecisionTree : IBankReadable
 
         TreeDataSize = reader.ReadInt32();
         Mode = (DecisionTreeMode)reader.ReadByte();
-        Tree = new DecisionTreeNode[TreeDataSize / Marshal.SizeOf<DecisionTreeNode>()];
-        reader.Read(MemoryMarshal.Cast<DecisionTreeNode, byte>(Tree.Span));
+        Tree = new DecisionTreeNode[TreeDataSize / Unsafe.SizeOf<DecisionTreeNode>()];
+        reader.Read(MemoryMarshal.AsBytes(Tree.Span));
     }
 
     public IEnumerable<FNVID<uint>> Resolve(EventInfo eventInfo)

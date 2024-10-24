@@ -29,8 +29,8 @@
   </ItemGroup>
 	
   <ItemGroup>
-    <Compile Update="Controls\VLCPlayer.axaml.cs">
-      <DependentUpon>VLCPlayer.axaml</DependentUpon>
+    <Compile Update="Views\PlayerView.axaml.cs">
+      <DependentUpon>PlayerView.axaml</DependentUpon>
     </Compile>
     <Compile Update="Views\EntryView.axaml.cs">
       <DependentUpon>EntryView.axaml</DependentUpon>

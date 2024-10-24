@@ -2,12 +2,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:vm="clr-namespace:Audio.GUI.ViewModels"
 			 xmlns:i="clr-namespace:Avalonia.Xaml.Interactivity;assembly=Avalonia.Xaml.Interactivity"
 			 xmlns:ia="clr-namespace:Avalonia.Xaml.Interactions.Core;assembly=Avalonia.Xaml.Interactions"
-             xmlns:vm="clr-namespace:Audio.GUI.ViewModels"
-			 xmlns:models="clr-namespace:Audio.GUI.Models"
-			 xmlns:controls="clr-namespace:Audio.GUI.Controls"
-			 xmlns:views="clr-namespace:Audio.GUI.Views"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="Audio.GUI.Views.TreeView"
              x:DataType="vm:TreeViewModel">
@@ -16,7 +13,7 @@
          to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
 		<vm:TreeViewModel />
 	</Design.DataContext>
-	<Grid RowDefinitions="35, *">
+	<Grid RowDefinitions="Auto, *">
 		<TextBox Grid.Row="0" Text="{Binding SearchText}" Watermark="Regex Search (press Enter to apply)">
 			<i:Interaction.Behaviors>
 				<ia:EventTriggerBehavior EventName="KeyDown">

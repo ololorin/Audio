@@ -3,17 +3,26 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Audio.GUI.ViewModels;
 
 public partial class EntryViewModel : ViewModelBase
 {
+    private readonly PlayerViewModel _playerViewModel;
+
     [ObservableProperty]
     private string infoText = "";
 
     [ObservableProperty]
     private Entry? entry;
 
+    public PlayerViewModel PlayerViewModel => _playerViewModel;
+
+    public EntryViewModel()
+    {
+        _playerViewModel = new();
+    }
     partial void OnEntryChanged(Entry? value)
     {
         if (value != null)
@@ -39,6 +48,7 @@ public partial class EntryViewModel : ViewModelBase
             }
 
             InfoText = sb.ToString();
+            Task.Run(() => _playerViewModel.LoadAudio(value));
         }
     }
 }

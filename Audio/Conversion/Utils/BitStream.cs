@@ -1,4 +1,5 @@
-﻿using static Audio.Conversion.Utils.BitHelper;
+﻿using System.Buffers;
+using System.Buffers.Binary;
 
 namespace Audio.Conversion.Utils;
 public class BitStream : Stream
@@ -6,7 +7,6 @@ public class BitStream : Stream
     private readonly Stream _baseStream;
     private readonly bool _leaveOpen;
     private readonly bool _writable;
-    private readonly byte[] _buffer;
 
     private int _position;
     private int _index;
@@ -17,7 +17,6 @@ public class BitStream : Stream
         _leaveOpen = leaveOpen;
         _writable = writable;
 
-        _buffer = new byte[1];
         _position = 0;
         _index = 0;
     }
@@ -25,33 +24,26 @@ public class BitStream : Stream
     public virtual Stream BaseStream => _baseStream;
     public override bool CanRead => _baseStream.CanRead;
     public override bool CanSeek => _baseStream.CanSeek;
-    public override bool CanWrite => _writable;
-    public override long Length => _baseStream.Length * BitsInByte;
+    public override bool CanWrite => _baseStream.CanWrite && _writable;
+    public override long Length => _baseStream.Length * 8;
     public override long Position
     {
-        get => _position * BitsInByte + _index;
+        get => _position * 8 + _index;
         set => Seek(value, SeekOrigin.Begin);
     }
 
     public override void Flush()
     {
-        if (CanWrite && _index != 0)
+        if (_index != 0)
         {
-            while (_index < BitsInByte)
-            {
-                UnsetBit(_buffer, _index++);
-            }
-
-            _baseStream.Position = _position;
-            _baseStream.Write(_buffer);
-            _position++;
-            _index = 0;
+            Write(8 - _index);
         }
     }
-    public override void SetLength(long value) => _baseStream.SetLength(value / BitsInByte);
+    public override void SetLength(long value) => _baseStream.SetLength(value / 8);
     public override long Seek(long offset, SeekOrigin origin)
     {
-        (long position, long index) = Math.DivRem(offset, BitsInByte);
+        long position = offset / 8;
+        long index = offset % 8;
 
         long newPosition = origin switch
         {
@@ -71,7 +63,7 @@ public class BitStream : Stream
         if (newPosition < 0 || newPosition > Length)
             throw new IOException("Cannot seek to a given position");
 
-        if (newIndex < 0 || newIndex > BitsInByte)
+        if (newIndex < 0 || newIndex > 8)
             throw new IOException("Cannot seek to a given index");
 
         _position = (int)newPosition;
@@ -83,60 +75,151 @@ public class BitStream : Stream
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentOutOfRangeException.ThrowIfLessThan(offset, 0);
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 0);
-        ArgumentOutOfRangeException.ThrowIfLessThan(buffer.Length - offset, count);
+        ArgumentOutOfRangeException.ThrowIfLessThan((buffer.Length * 8) - offset, count);
         ArgumentOutOfRangeException.ThrowIfLessThan(Length - Position, count);
 
-        int read = count;
-        while (count > 0)
+        int byteIndex = offset / 8;
+        int bitIndex = offset % 8;
+
+        int byteCount = count / 8;
+        int bitCount = count % 8;
+
+        int alignedCount = (count + 7 & ~7) / 8;
+        int alignedbyteCount = (count + _index + 7 & ~7) / 8;
+
+        if (alignedbyteCount > 0)
         {
-            if (_index == 0)
+            byte[] tempBuffer = ArrayPool<byte>.Shared.Rent(alignedbyteCount);
+            try
             {
                 _baseStream.Position = _position;
-                _baseStream.Read(_buffer);
+                _baseStream.Read(tempBuffer.AsSpan(byteIndex, alignedbyteCount));
+                _position += byteCount;
+
+                if (alignedbyteCount != byteCount)
+                {
+                    int remaining = count;
+                    for (int i = byteIndex; i < alignedbyteCount; i++)
+                    {
+                        tempBuffer[i] >>= _index;
+                        tempBuffer[i] <<= bitIndex;
+
+                        if (i != alignedbyteCount - 1)
+                        {
+                            tempBuffer[i] |= (byte)(tempBuffer[i + 1] << (8 - _index) << bitIndex);
+                        }
+
+                        int shiftCount = Math.Min(8, remaining);
+                        tempBuffer[i] &= (byte)(byte.MaxValue >> (8 - shiftCount));
+                        remaining -= shiftCount;
+                    }
+
+                    _index += bitCount;
+                    if (_index >= 8)
+                    {
+                        _position++;
+                        _index %= 8;
+                    }
+                }
+
+                tempBuffer.AsSpan(byteIndex, alignedCount).CopyTo(buffer.AsSpan(byteIndex, alignedCount));
             }
-
-            buffer[offset++] = (byte)(IsBitSet(_buffer, _index++) ? 1 : 0);
-            count--;
-
-            if (_index == BitsInByte)
+            finally
             {
-                _index = 0;
-                _position++;
+                ArrayPool<byte>.Shared.Return(tempBuffer);
             }
         }
 
-        return read;
+        return count;
     }
     public override void Write(byte[] buffer, int offset, int count)
     {
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentOutOfRangeException.ThrowIfLessThan(offset, 0);
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 0);
-        ArgumentOutOfRangeException.ThrowIfLessThan(buffer.Length - offset, count);
+        ArgumentOutOfRangeException.ThrowIfLessThan((buffer.Length * 8) - offset, count);
 
         if (Position + count > Length)
             count = (int)(Length - Position);
 
-        while (count > 0)
+        int byteIndex = offset / 8;
+        int bitIndex = offset % 8;
+
+        int byteCount = count / 8;
+        int bitCount = count % 8;
+
+        int alignedCount = (count + 7 & ~7) / 8;
+        int alignedbyteCount = (count + _index + 7 & ~7) / 8;
+
+        if (alignedbyteCount > 0)
         {
-            if (buffer[offset++] != 0)
+            byte[] tempBuffer = ArrayPool<byte>.Shared.Rent(alignedbyteCount);
+            try
             {
-                SetBit(_buffer, _index++);
-            }
-            else
-            {
-                UnsetBit(_buffer, _index++);
-            }
+                buffer.AsSpan(byteIndex, alignedCount).CopyTo(tempBuffer.AsSpan(byteIndex, alignedCount));
 
-            count--;
+                if (alignedbyteCount != byteCount)
+                {
+                    int remaining = bitCount;
+                    for (int i = alignedbyteCount; i >= byteIndex; i--)
+                    {
+                        tempBuffer[i] <<= _index;
+                        tempBuffer[i] <<= bitIndex;
 
-            if (_index == BitsInByte)
+                        if (i != byteIndex)
+                        {
+                            tempBuffer[i] |= (byte)(tempBuffer[i - 1] >> (8 - _index) << bitIndex);
+                        }
+
+                        int shiftCount = Math.Min(8, remaining);
+                        tempBuffer[i] &= (byte)(byte.MaxValue >> (8 - shiftCount));
+                        remaining += 8;
+                    }
+
+                    if (_index != 0)
+                    {
+                        byte value = 0;
+                        _baseStream.Position = _position;
+                        _baseStream.Read(new Span<byte>(ref value));
+
+                        tempBuffer[byteIndex] |= (byte)(value & byte.MaxValue >> (8 - _index));
+                    }
+
+                    _index += bitCount;
+                }
+
+                _baseStream.Position = _position;
+                _baseStream.Write(tempBuffer.AsSpan(byteIndex, alignedbyteCount));
+                _position += byteCount;
+
+                if (_index >= 8)
+                {
+                    _position++;
+                    _index %= 8;
+                }
+            }
+            finally
             {
-                Flush();
+                ArrayPool<byte>.Shared.Return(tempBuffer);
             }
         }
     }
+    public uint Read(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(count, sizeof(uint) * 8, nameof(count));
 
+        byte[] buffer = new byte[4];
+        Read(buffer, 0, count);
+        return BinaryPrimitives.ReadUInt32LittleEndian(buffer);
+    }
+    public void Write(int count, uint value = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(count, sizeof(uint) * 8, nameof(count));
+
+        byte[] buffer = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer, value);
+        Write(buffer, 0, count);
+    }
     protected override void Dispose(bool disposing)
     {
         Flush();

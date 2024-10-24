@@ -2,7 +2,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
-using static Audio.Conversion.Utils.BitHelper;
 
 namespace Audio.Conversion.Utils;
 public class OGGStream : BitStream
@@ -14,8 +13,8 @@ public class OGGStream : BitStream
     private const int SerialNumber = 1;
     private const int Version = 0;
 
-    private static int MaxSegmentSize => SegmentSize * MaxSegments * BitsInByte;
-    private static int MaxSegmentOffset => (HeaderSize + MaxSegments) * BitsInByte;
+    private static int MaxSegmentSize => SegmentSize * MaxSegments * 8;
+    private static int MaxSegmentOffset => (HeaderSize + MaxSegments) * 8;
 
     private readonly Stream _outstream;
     private uint _sequanceNumber;
@@ -36,7 +35,7 @@ public class OGGStream : BitStream
     public PageType Type { get; set; }
 
     private List<long> Packets { get; init; } = [];
-    private long PageDataSize => (Position - MaxSegmentOffset) / BitsInByte;
+    private long PageDataSize => (Position - MaxSegmentOffset) / 8;
 
     public override MemoryStream BaseStream => (MemoryStream)base.BaseStream;
     public override bool CanRead => false;
@@ -53,7 +52,7 @@ public class OGGStream : BitStream
         base.Flush();
     }
 
-    public void FlushPacket(bool allowPage = false)
+    public void FlushPacket(bool canPage = false)
     {
         if (PageDataSize != SegmentSize * MaxSegments)
         {
@@ -62,7 +61,7 @@ public class OGGStream : BitStream
 
         Packets.Add(PageDataSize - Packets.Sum());
 
-        if (allowPage && (Packets.Count == MaxSegments || Packets.Sum() >= BufferSize))
+        if (canPage && (Packets.Count == MaxSegments || Packets.Sum() >= BufferSize))
         {
             FlushPage();
         }

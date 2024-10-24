@@ -1,16 +1,16 @@
 ﻿using Audio.Conversion.Utils;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Runtime.InteropServices;
-using static Audio.Conversion.Utils.BitHelper;
 
 namespace Audio.Conversion;
 public class WWiseCodebook
 {
     private const uint Signature = 0x564342;
 
-    private readonly Memory<byte> _codebookData;
-    private readonly Memory<int> _codebookOffsets;
+    private readonly byte[] _codebookData;
+    private readonly int[] _codebookOffsets;
     private readonly int _codebookSize;
 
     public WWiseCodebook(Stream stream)
@@ -25,22 +25,22 @@ public class WWiseCodebook
         _codebookOffsets = new int[(int)(stream.Length - _codebookSize) / 4];
 
         stream.Position = 0;
-        stream.ReadExactly(_codebookData.Span);
-        stream.ReadExactly(MemoryMarshal.AsBytes(_codebookOffsets.Span));
+        stream.ReadExactly(_codebookData.AsSpan());
+        stream.ReadExactly(MemoryMarshal.AsBytes(_codebookOffsets.AsSpan()));
     }
 
     public Span<byte> GetCodebook(int index)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(index, _codebookOffsets.Length);
 
-        int offset = _codebookOffsets.Span[index];
-        int size = _codebookData.Span.Length - offset;
+        int offset = _codebookOffsets[index];
+        int size = _codebookData.Length - offset;
         if (index < _codebookOffsets.Length - 1)
         {
-            size = _codebookOffsets.Span[index + 1] - offset;
+            size = _codebookOffsets[index + 1] - offset;
         }
 
-        return _codebookData.Span.Slice(offset, size);
+        return _codebookData.AsSpan(offset, size);
     }
 
     public void RebuildPCB(int index, OGGStream oggStream)
@@ -51,7 +51,7 @@ public class WWiseCodebook
 
         RebuildStream(pcbStream, oggStream);
 
-        if (pcbStream.Position < pcbStream.Length - BitsInByte)
+        if (pcbStream.Position < pcbStream.Length - 8)
         {
             throw new InvalidOperationException("Stream not entirely consumed !!");
         }
@@ -59,25 +59,31 @@ public class WWiseCodebook
 
     public static void RebuildStream(BitStream bitStream, OGGStream oggStream)
     {
-        BitValue dimensions = bitStream.Read(4);
-        BitValue entries = bitStream.Read(14);
+        uint dimensions = bitStream.Read(4);
+        uint entries = bitStream.Read(14);
 
-        oggStream.Write(new BitValue(24, Signature));
-        oggStream.Write(new BitValue(16, dimensions));
-        oggStream.Write(new BitValue(24, entries));
+        oggStream.Write(24, Signature);
+        oggStream.Write(16, dimensions);
+        oggStream.Write(24, entries);
 
-        BitValue ordered = bitStream.Read(1);
-        oggStream.Write(ordered);
+        uint ordered = bitStream.Read(1);
+        oggStream.Write(1, ordered);
 
         if (ordered != 0)
         {
-            oggStream.Write(bitStream.Read(5)); // InitialLength
+            oggStream.Write(5, bitStream.Read(5)); // InitialLength
 
             uint currentEntry = 0;
             while (currentEntry < entries)
             {
-                BitValue count = bitStream.Read(ILog(entries - currentEntry));
-                oggStream.Write(count);
+                int remainingEntry = (int)(entries - currentEntry);
+                if (remainingEntry > 0)
+                {
+                    remainingEntry = BitOperations.Log2(entries - currentEntry) + 1;
+                }
+
+                uint count = bitStream.Read(remainingEntry);
+                oggStream.Write(remainingEntry, count);
                 currentEntry += count;
             }
 
@@ -88,52 +94,53 @@ public class WWiseCodebook
         }
         else
         {
-            BitValue codewordSizeBitcount = bitStream.Read(3);
-            BitValue sparse = bitStream.Read(1);
+            uint codewordSizeBitcount = bitStream.Read(3);
+            uint sparse = bitStream.Read(1);
 
             if (codewordSizeBitcount <= 0 || codewordSizeBitcount > 5)
             {
                 throw new InvalidOperationException("Invalid Codeword sizes count.");
             }
 
-            oggStream.Write(sparse);
+            oggStream.Write(1, sparse);
 
             for (uint i = 0; i < entries; i++)
             {
-                BitValue present = new(1, 1);
+                uint present = 1;
 
                 if (sparse != 0)
                 {
                     present = bitStream.Read(1);
-                    oggStream.Write(present);
+                    oggStream.Write(1, present);
                 }
 
                 if (present != 0)
                 {
-                    BitValue codewordSize = bitStream.Read((int)(uint)codewordSizeBitcount);
-                    oggStream.Write(new BitValue(5, codewordSize));
+                    uint codewordSize = bitStream.Read((int)codewordSizeBitcount);
+                    oggStream.Write(5, codewordSize);
                 }
             }
         }
 
-        BitValue lookupType = bitStream.Read(1);
-        oggStream.Write(new BitValue(4, lookupType));
+        uint lookupType = bitStream.Read(1);
+        oggStream.Write(4, lookupType);
         if (lookupType == 1)
         {
-            BitValue min = bitStream.Read(32);
-            BitValue max = bitStream.Read(32);
-            BitValue bitCount = bitStream.Read(4);
-            BitValue sequanceFlag = bitStream.Read(1);
+            uint min = bitStream.Read(32);
+            uint max = bitStream.Read(32);
+            uint bitCount = bitStream.Read(4);
+            uint sequanceFlag = bitStream.Read(1);
 
-            oggStream.Write(min);
-            oggStream.Write(max);
-            oggStream.Write(bitCount);
-            oggStream.Write(sequanceFlag);
+            oggStream.Write(32, min);
+            oggStream.Write(32, max);
+            oggStream.Write(4, bitCount);
+            oggStream.Write(1, sequanceFlag);
 
+            int count = (int)bitCount + 1;
             uint qCount = QuantCount(entries, dimensions);
             for (uint i = 0; i < qCount; i++)
             {
-                oggStream.Write(bitStream.Read(bitCount + 1));
+                oggStream.Write(count, bitStream.Read(count));
             }
         }
         else if (lookupType != 0)
@@ -144,31 +151,37 @@ public class WWiseCodebook
 
     public static void Copy(BitStream bitStream, OGGStream oggStream)
     {
-        BitValue signature = bitStream.Read(24);
-        BitValue dimensions = bitStream.Read(16);
-        BitValue entries = bitStream.Read(24);
+        uint signature = bitStream.Read(24);
+        uint dimensions = bitStream.Read(16);
+        uint entries = bitStream.Read(24);
 
         if (signature != Signature)
         {
             throw new InvalidDataException($"Expected {Signature}, got {signature} instead !!");
         }
 
-        oggStream.Write(new BitValue(24, signature));
-        oggStream.Write(new BitValue(16, dimensions));
-        oggStream.Write(new BitValue(24, entries));
+        oggStream.Write(24, signature);
+        oggStream.Write(16, dimensions);
+        oggStream.Write(24, entries);
 
-        BitValue ordered = bitStream.Read(1);
-        oggStream.Write(ordered);
+        uint ordered = bitStream.Read(1);
+        oggStream.Write(1, ordered);
 
         if (ordered != 0)
         {
-            oggStream.Write(bitStream.Read(5)); // InitialLength
+            oggStream.Write(5, bitStream.Read(5)); // InitialLength
 
             uint currentEntry = 0;
             while (currentEntry < entries)
             {
-                BitValue count = bitStream.Read(ILog(entries - currentEntry));
-                oggStream.Write(count);
+                int remainingEntry = (int)(entries - currentEntry);
+                if (remainingEntry > 0)
+                {
+                    remainingEntry = BitOperations.Log2(entries - currentEntry) + 1;
+                }
+
+                uint count = bitStream.Read(remainingEntry);
+                oggStream.Write(remainingEntry);
                 currentEntry += count;
             }
 
@@ -179,44 +192,45 @@ public class WWiseCodebook
         }
         else
         {
-            BitValue sparse = bitStream.Read(1);
-            oggStream.Write(sparse);
+            uint sparse = bitStream.Read(1);
+            oggStream.Write(1, sparse);
 
             for (uint i = 0; i < entries; i++)
             {
-                BitValue present = new(1, 1);
+                uint present = 1;
 
                 if (sparse != 0)
                 {
                     present = bitStream.Read(1);
-                    oggStream.Write(present);
+                    oggStream.Write(1, present);
                 }
 
                 if (present != 0)
                 {
-                    oggStream.Write(bitStream.Read(5)); // codewordLength
+                    oggStream.Write(5, bitStream.Read(5)); // codewordLength
                 }
             }
         }
 
-        BitValue lookupType = bitStream.Read(4);
-        oggStream.Write(lookupType);
+        uint lookupType = bitStream.Read(4);
+        oggStream.Write(4, lookupType);
         if (lookupType == 1)
         {
-            BitValue min = bitStream.Read(32);
-            BitValue max = bitStream.Read(32);
-            BitValue bitCount = bitStream.Read(4);
-            BitValue sequanceFlag = bitStream.Read(1);
+            uint min = bitStream.Read(32);
+            uint max = bitStream.Read(32);
+            uint bitCount = bitStream.Read(4);
+            uint sequanceFlag = bitStream.Read(1);
 
-            oggStream.Write(min);
-            oggStream.Write(max);
-            oggStream.Write(bitCount);
-            oggStream.Write(sequanceFlag);
+            oggStream.Write(32, min);
+            oggStream.Write(32, max);
+            oggStream.Write(4, bitCount);
+            oggStream.Write(1, sequanceFlag);
 
+            int count = (int)bitCount + 1;
             uint qCount = QuantCount(entries, dimensions);
             for (uint i = 0; i < qCount; i++)
             {
-                oggStream.Write(bitStream.Read(bitCount + 1));
+                oggStream.Write(count, bitStream.Read(count));
             }
         }
         else if (lookupType != 0)
@@ -227,10 +241,13 @@ public class WWiseCodebook
 
     private static uint QuantCount(uint entries, uint dimensions)
     {
-        int bits = ILog(entries);
-        uint vals = entries >> (int)((bits - 1) * (dimensions - 1) / dimensions);
+        int bits = (int)entries;
+        if (bits > 0)
+        {
+            bits = BitOperations.Log2(entries) + 1;
+        }
 
-        uint acc, nextAcc;
+        uint acc, nextAcc, vals = entries >> (int)((bits - 1) * (dimensions - 1) / dimensions);
         while (true)
         {
             acc = 1;

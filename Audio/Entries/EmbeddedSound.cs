@@ -16,7 +16,7 @@ public record EmbeddedSound : TaggedEntry<uint>
             {
                 _bank = value;
                 Folder = _bank.Folder;
-                Parent = _bank.Parent;
+                Parent = _bank.Parent ?? _bank.BKHD;
                 Offset += _bank.Offset + data.BaseOffset;
             }
         }

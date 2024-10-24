@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Models.TreeDataGrid;
 using Avalonia.Data;
 using Avalonia.Input;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
@@ -39,9 +40,6 @@ public partial class TreeViewModel : ViewModelBase
     [ObservableProperty]
     private ObservableCollection<TreeNode> nodes;
 
-    [ObservableProperty]
-    private Entry? selectedEntry;
-
     private IPlatformServiceProvider PlatformServiceProvider
     {
         get
@@ -66,7 +64,13 @@ public partial class TreeViewModel : ViewModelBase
     } 
 
     [DesignOnly(true)]
-    public TreeViewModel() { }
+    public TreeViewModel()
+    {
+        _audioManager = new();
+        _entryViewModel = new();
+        Nodes = [];
+        Source = new([]);
+    }
 
     public TreeViewModel(AudioManager audioManager, EntryViewModel entryViewModel)
     {
@@ -94,17 +98,15 @@ public partial class TreeViewModel : ViewModelBase
                 ),
             },
         };
+        Source.RowSelection!.SingleSelect = true;
+        Source.RowSelection!.SelectionChanged += TreeViewModel_SelectionChanged;
     }
+
     [RelayCommand]
     public void Expand(TappedEventArgs e)
     {
         if (Source.RowSelection!.SelectedIndex > -1)
         {
-            if (Source.RowSelection!.SelectedItem is EntryTreeNode entryTreeNode)
-            {
-                _entryViewModel.Entry = entryTreeNode.Entry;
-            }
-
             if (Source.RowSelection!.SelectedItem?.IsExpanded == true)
             {
                 Source.Collapse(Source.RowSelection!.SelectedIndex);
@@ -115,25 +117,14 @@ public partial class TreeViewModel : ViewModelBase
             }
         }
     }
-
     [RelayCommand]
-    public void PreviewEntry(TappedEventArgs e)
-    {
-        if (e.Source is StyledElement styledElement && styledElement.DataContext is EntryTreeNode entryTreeNode)
-        {
-            SelectedEntry = entryTreeNode.Entry;
-        } 
-    }
-
-    [RelayCommand]
-    public void Refresh(KeyEventArgs e)
+    public async Task Refresh(KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
         {
-            Update();
+            await Dispatcher.UIThread.InvokeAsync(Update);
         }
     }
-
     [RelayCommand]
     public async Task Copy(KeyEventArgs e)
     {
@@ -145,12 +136,17 @@ public partial class TreeViewModel : ViewModelBase
             }
         }
     }
-
     public void Update()
     {
         Nodes.Clear();
-
         BuildTree(_audioManager.Entries);
+    }
+    private void TreeViewModel_SelectionChanged(object? sender, Avalonia.Controls.Selection.TreeSelectionModelSelectionChangedEventArgs<TreeNode> e)
+    {
+        if (e.SelectedItems.FirstOrDefault() is EntryTreeNode entryTreeNode)
+        {
+            _entryViewModel.Entry = entryTreeNode.Entry;
+        }
     }
     private void BuildTree(IEnumerable<Entry> entries, TreeNode? parent = null, int index = 0)
     {
@@ -167,31 +163,24 @@ public partial class TreeViewModel : ViewModelBase
                 else
                 {
                     node = new EntryTreeNode(group.First()) { Name = group.Key };
-                    if (!node.HasMatch(SearchText))
-                    {
-                        node = null;
-                    }
                 }
 
-                if (node != null)
+                if (parent == null)
                 {
-                    if (parent == null)
-                    {
-                        Nodes.Add(node);
-                    }
-                    else
-                    {
-                        parent.Nodes.Add(node);
-                    }
+                    Nodes.Add(node);
+                }
+                else
+                {
+                    parent.Nodes.Add(node);
+                }
 
-                    BuildTree(group, node, index + 1);
+                BuildTree(group, node, index + 1);
 
-                    for (int i = node.Nodes.Count - 1; i >= 0; i--)
+                for (int i = node.Nodes.Count - 1; i >= 0; i--)
+                {
+                    if (node.Nodes[i] is TreeNode child && !child.HasMatch(SearchText) && child.Nodes.Count == 0)
                     {
-                        if (node.Nodes[i] is TreeNode child && child is not EntryTreeNode && child.Nodes.Count == 0)
-                        {
-                            node.Nodes.RemoveAt(i);
-                        }
+                        node.Nodes.RemoveAt(i);
                     }
                 }
             }

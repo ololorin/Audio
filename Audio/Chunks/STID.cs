@@ -18,7 +18,7 @@ public record STID : Chunk
             reader.ReadUInt32(); // ID
             byte nameLength = reader.ReadByte();
             string name = reader.ReadRawString(nameLength);
-            FNVID<uint>.TryMatch(name, out _);
+            FNVID<uint>.TryMatch(name);
         }
     }
 }

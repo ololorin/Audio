@@ -1,7 +1,7 @@
 ﻿using Audio.Conversion.Chunks;
 using Audio.Conversion.Utils;
 using System.Buffers.Binary;
-using static Audio.Conversion.Utils.BitHelper;
+using System.Numerics;
 
 namespace Audio.Conversion.Codecs;
 public class Vorbis : WWiseRIFFFile
@@ -26,15 +26,15 @@ public class Vorbis : WWiseRIFFFile
                 return false;
             }
 
-            Span<byte> buffer = stackalloc byte[2]; 
+            Span<byte> buffer = stackalloc byte[4]; 
 
             List<VorbisSeekEntry> seekTable = [];
             for (int i = 0; i < vorb.SeekTableSize / 4; i++)
             {
-                Header.Stream.ReadExactly(buffer);
+                Header.Stream.ReadExactly(buffer[..2]);
                 uint frameOffset = BinaryPrimitives.ReadUInt16LittleEndian(buffer) + (seekTable.LastOrDefault()?.FrameOffset ?? 0);
 
-                Header.Stream.ReadExactly(buffer);
+                Header.Stream.ReadExactly(buffer[..2]);
                 uint fileOffset = BinaryPrimitives.ReadUInt16LittleEndian(buffer) + (seekTable.LastOrDefault()?.FileOffset ?? 0);
 
                 seekTable.Add(new(frameOffset, fileOffset));
@@ -47,10 +47,9 @@ public class Vorbis : WWiseRIFFFile
                 int prevBlockSize = 0;
                 bool prevBlockFlag = false;
                 bool needMod = blockFlags.Length > 0 && modeBitCount > 0;
+                using BitStream bitStream = new(Header.Stream, false, true);
                 while (Header.Stream.Position < data.Header.Offset + data.Header.Length)
                 {
-                    int mode = 0;
-
                     VorbisPacket packet = new(Header.Stream, Header.Stream.Position);
 
                     if (Header.Stream.Position + packet.Size > data.Header.Offset + data.Header.Length)
@@ -61,24 +60,23 @@ public class Vorbis : WWiseRIFFFile
 
                     Header.Stream.Position = packet.Offset;
 
+                    int mode = 0;
+                    int size = packet.Size;
                     if (needMod)
                     {
-                        oggStream.Write(new BitValue(1)); // packetType
+                        bitStream.Position = packet.Offset * 8;
 
-                        using BitStream bitStream = new(Header.Stream, false, true);
-                        bitStream.Position = packet.Offset * BitsInByte;
+                        oggStream.Write(1); // packetType
 
-                        BitValue modeNumber = bitStream.Read(modeBitCount);
-                        BitValue reminder = bitStream.Read(BitsInByte - modeBitCount);
+                        uint modeNumber = bitStream.Read(modeBitCount);
+                        uint reminder = bitStream.Read(8 - modeBitCount);
 
-                        oggStream.Write(modeNumber);
+                        oggStream.Write(modeBitCount, modeNumber);
 
                         mode = Convert.ToInt32(blockFlags[modeNumber]);
 
                         if (blockFlags[modeNumber])
                         {
-                            Header.Stream.Position = packet.Next;
-
                             bool nextBlockFlag = false;
                             if (packet.Next + 2 <= data.Header.Offset + data.Header.Length)
                             {
@@ -87,36 +85,38 @@ public class Vorbis : WWiseRIFFFile
                                 {
                                     Header.Stream.Position = nextPacket.Offset;
 
-                                    using BitStream nextPacketBitstream = new(Header.Stream, false, true);
-                                    nextPacketBitstream.Position = nextPacket.Offset * BitsInByte;
+                                    bitStream.Position = nextPacket.Offset * 8;
 
-                                    BitValue nextModeNumber = nextPacketBitstream.Read(modeBitCount);
+                                    uint nextModeNumber = bitStream.Read(modeBitCount);
                                     nextBlockFlag = blockFlags[nextModeNumber];
                                 }
                             }
 
-                            oggStream.Write(new BitValue(1, Convert.ToUInt32(prevBlockFlag)));
-                            oggStream.Write(new BitValue(1, Convert.ToUInt32(nextBlockFlag)));
+                            oggStream.Write(1, Convert.ToUInt32(prevBlockFlag));
+                            oggStream.Write(1, Convert.ToUInt32(nextBlockFlag));
                             Header.Stream.Position = packet.Offset + 1;
                         }
 
                         prevBlockFlag = blockFlags[modeNumber];
 
-                        oggStream.Write(reminder);
+                        oggStream.Write(8 - modeBitCount, reminder);
+                        size--;
                     }
 
-                    for (int i = 0; i < packet.Size; i++)
+                    while (size > 0)
                     {
-                        if (i == 0 && needMod) continue;
-
-                        int b = Header.Stream.ReadByte();
-                        if (b < 0)
+                        int count = Math.Clamp(size, 0, buffer.Length);
+                        int read = Header.Stream.Read(buffer[..count]);
+                        if (read != count)
                         {
                             Logger.Warning("Audio packet truncated !!");
                             return false;
                         }
-
-                        oggStream.Write(new BitValue(8, (uint)b));
+                    
+                        oggStream.Write(read * 8, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
+                        
+                        buffer.Clear();
+                        size -= read;
                     }
 
                     int blockSize = 1 << vorb.BlockSizes[mode];
@@ -162,31 +162,31 @@ public class Vorbis : WWiseRIFFFile
         if (Header.GetChunk(out FMT? fmt) && Header.GetChunk(out VORB? vorb))
         {
             WriteHeader(oggStream, VorbisHeaderType.Info);
-            oggStream.Write(new BitValue(32)); // version
-            oggStream.Write(new BitValue(8, fmt.Channels));
-            oggStream.Write(new BitValue(32, fmt.SampleRate));
-            oggStream.Write(new BitValue(32)); // bitrate_max
-            oggStream.Write(new BitValue(32, fmt.AverageBitrate * BitsInByte));
-            oggStream.Write(new BitValue(32)); // bitrate_minimum
-            oggStream.Write(new BitValue(4, vorb.BlockSizes[0]));
-            oggStream.Write(new BitValue(4, vorb.BlockSizes[1]));
-            oggStream.Write(new BitValue(1, 1)); // framing
+            oggStream.Write(32); // version
+            oggStream.Write(8, fmt.Channels);
+            oggStream.Write(32, fmt.SampleRate);
+            oggStream.Write(32); // bitrate_max
+            oggStream.Write(32, fmt.AverageBitrate * 8);
+            oggStream.Write(32); // bitrate_minimum
+            oggStream.Write(4, vorb.BlockSizes[0]);
+            oggStream.Write(4, vorb.BlockSizes[1]);
+            oggStream.Write(1, 1); // framing
             oggStream.FlushPage();
 
             WriteHeader(oggStream, VorbisHeaderType.Comment);
             WriteString(oggStream, "Converted from Audiokinetic Wwise by ww2ogg 0.24");
             if (false) // TODO: loops
             {
-                oggStream.Write(new BitValue(32, 2));
+                oggStream.Write(32, 2);
                 WriteString(oggStream, $"LoopStart={vorb.LoopInfo.LoopBeginExtra}");
                 WriteString(oggStream, $"LoopEnd={vorb.LoopInfo.LoopEndExtra}");
             }
             else
             {
-                oggStream.Write(new BitValue(32));
+                oggStream.Write(32);
             }
 
-            oggStream.Write(new BitValue(1, 1)); // framing
+            oggStream.Write(1, 1); // framing
             oggStream.FlushPacket();
 
             if (Header.GetChunk(out DATA? data))
@@ -195,11 +195,11 @@ public class Vorbis : WWiseRIFFFile
                 VorbisPacket setupPacket = new(Header.Stream, data.Header.Offset + vorb.SeekTableSize);
 
                 using BitStream bitStream = new(Header.Stream, leaveOpen: true);
-                bitStream.Position = setupPacket.Offset * BitsInByte;
+                bitStream.Position = setupPacket.Offset * 8;
 
-                BitValue prevCodebookCount = bitStream.Read(8);
-                oggStream.Write(prevCodebookCount);
-                uint codebookCount = (uint)prevCodebookCount + 1;
+                uint prevCodebookCount = bitStream.Read(8);
+                oggStream.Write(8, prevCodebookCount);
+                uint codebookCount = prevCodebookCount + 1;
 
                 if (WWiseCodebook.TryOpen(Codebook, out WWiseCodebook? codebook))
                 {
@@ -207,7 +207,7 @@ public class Vorbis : WWiseRIFFFile
                     {
                         for (int i = 0; i < codebookCount; i++)
                         {
-                            BitValue codebookID = bitStream.Read(10);
+                            int codebookID = (int)bitStream.Read(10);
                             codebook.RebuildPCB(codebookID, oggStream);
                         }
                     }
@@ -218,25 +218,25 @@ public class Vorbis : WWiseRIFFFile
                     }
                 }
 
-                oggStream.Write(new BitValue(6)); // timeCountLess1
-                oggStream.Write(new BitValue(16)); // ignoreTimeValue
+                oggStream.Write(6); // timeCountLess1
+                oggStream.Write(16); // ignoreTimeValue
 
-                BitValue floorCountLess1 = bitStream.Read(6);
-                oggStream.Write(floorCountLess1);
+                uint floorCountLess1 = bitStream.Read(6);
+                oggStream.Write(6, floorCountLess1);
 
-                uint floorCount = (uint)floorCountLess1 + 1;
+                uint floorCount = floorCountLess1 + 1;
                 for (int i = 0; i < floorCount; i++)
                 {
-                    oggStream.Write(new BitValue(16, 1)); // floorType
+                    oggStream.Write(16, 1); // floorType
 
-                    BitValue floorPartitionsCount = bitStream.Read(5);
-                    oggStream.Write(floorPartitionsCount);
+                    uint floorPartitionsCount = bitStream.Read(5);
+                    oggStream.Write(5, floorPartitionsCount);
 
                     uint[] floorPartitions = new uint[floorPartitionsCount];
                     for (int j = 0; j < floorPartitionsCount; j++)
                     {
-                        BitValue floorPartition = bitStream.Read(4);
-                        oggStream.Write(floorPartition);
+                        uint floorPartition = bitStream.Read(4);
+                        oggStream.Write(4, floorPartition);
 
                         floorPartitions[j] = floorPartition;
                     }
@@ -245,18 +245,18 @@ public class Vorbis : WWiseRIFFFile
                     uint[] floorDimensions = new uint[maxPartition + 1];
                     for (int j = 0; j <= maxPartition; j++)
                     {
-                        BitValue partitionDimensionLess1 = bitStream.Read(3);
-                        oggStream.Write(partitionDimensionLess1);
+                        uint partitionDimensionLess1 = bitStream.Read(3);
+                        oggStream.Write(3, partitionDimensionLess1);
 
-                        floorDimensions[j] = (uint)partitionDimensionLess1 + 1;
+                        floorDimensions[j] = partitionDimensionLess1 + 1;
 
-                        BitValue subPartitions = bitStream.Read(2);
-                        oggStream.Write(subPartitions);
+                        uint subPartitions = bitStream.Read(2);
+                        oggStream.Write(2, subPartitions);
 
                         if (subPartitions != 0)
                         {
-                            BitValue masterBook = bitStream.Read(8);
-                            oggStream.Write(masterBook);
+                            uint masterBook = bitStream.Read(8);
+                            oggStream.Write(8, masterBook);
 
                             if (masterBook >= codebookCount)
                             {
@@ -265,13 +265,13 @@ public class Vorbis : WWiseRIFFFile
                             }
                         }
 
-                        for (int k = 0; k < 1 << subPartitions; k++)
+                        for (int k = 0; k < 1 << (int)subPartitions; k++)
                         {
-                            BitValue nextSubPartitionBook = bitStream.Read(8);
-                            oggStream.Write(nextSubPartitionBook);
+                            uint SubPartitionBookPlus1 = bitStream.Read(8);
+                            oggStream.Write(8, SubPartitionBookPlus1);
 
-                            int subPartitionBook = nextSubPartitionBook - 1;
-                            if (subPartitions >= 0 && subPartitions >= codebookCount)
+                            uint subPartitionBook = SubPartitionBookPlus1 - 1;
+                            if (subPartitionBook >= 0 && subPartitions >= codebookCount)
                             {
                                 Logger.Warning($"Sub partition {subPartitions} is out of range {codebookCount}");
                                 return false;
@@ -279,29 +279,29 @@ public class Vorbis : WWiseRIFFFile
                         }
                     }
 
-                    oggStream.Write(bitStream.Read(2)); // floorMultiplierLess1
+                    oggStream.Write(2, bitStream.Read(2)); // floorMultiplierLess1
 
-                    BitValue rangeBitCount = bitStream.Read(4);
-                    oggStream.Write(rangeBitCount);
+                    uint rangeBitCount = bitStream.Read(4);
+                    oggStream.Write(4, rangeBitCount);
 
                     for (int j = 0; j < floorPartitionsCount; j++)
                     {
                         uint currentPartition = floorPartitions[j];
                         for (int k = 0; k < floorDimensions[currentPartition]; k++)
                         {
-                            oggStream.Write(bitStream.Read(rangeBitCount)); // X
+                            oggStream.Write((int)rangeBitCount, bitStream.Read((int)rangeBitCount)); // X
                         }
                     }
                 }
 
-                BitValue residueCountLess1 = bitStream.Read(6);
-                oggStream.Write(residueCountLess1);
+                uint residueCountLess1 = bitStream.Read(6);
+                oggStream.Write(6, residueCountLess1);
 
-                int residueCount = residueCountLess1 + 1;
+                uint residueCount = residueCountLess1 + 1;
                 for (int i = 0; i < residueCount; i++)
                 {
-                    BitValue residueType = bitStream.Read(2);
-                    oggStream.Write(new BitValue(16, residueType));
+                    uint residueType = bitStream.Read(2);
+                    oggStream.Write(16, residueType);
 
                     if (residueType > 2)
                     {
@@ -309,15 +309,15 @@ public class Vorbis : WWiseRIFFFile
                         return false;
                     }
 
-                    oggStream.Write(bitStream.Read(24)); // residueBegin
-                    oggStream.Write(bitStream.Read(24)); // residueEnd
-                    oggStream.Write(bitStream.Read(24)); // residuePartitionSizeLess1
+                    oggStream.Write(24, bitStream.Read(24)); // residueBegin
+                    oggStream.Write(24, bitStream.Read(24)); // residueEnd
+                    oggStream.Write(24, bitStream.Read(24)); // residuePartitionSizeLess1
 
-                    BitValue residueClassificationCountLess1 = bitStream.Read(6);
-                    BitValue residueClassbook = bitStream.Read(8);
+                    uint residueClassificationCountLess1 = bitStream.Read(6);
+                    uint residueClassbook = bitStream.Read(8);
 
-                    oggStream.Write(residueClassificationCountLess1);
-                    oggStream.Write(residueClassbook);
+                    oggStream.Write(6, residueClassificationCountLess1);
+                    oggStream.Write(8, residueClassbook);
 
                     if (residueClassbook >= codebookCount)
                     {
@@ -325,35 +325,35 @@ public class Vorbis : WWiseRIFFFile
                         return false;
                     }
 
-                    int residueClassificationCount = residueClassificationCountLess1 + 1;
+                    uint residueClassificationCount = residueClassificationCountLess1 + 1;
                     uint[] residueCascade = new uint[residueClassificationCount];
                     for (int j = 0; j < residueClassificationCount; j++)
                     {
-                        BitValue highBits = new(5);
+                        uint highBits = 0;
 
-                        BitValue lowBits = bitStream.Read(3);
-                        oggStream.Write(lowBits);
+                        uint lowBits = bitStream.Read(3);
+                        oggStream.Write(3, lowBits);
 
-                        BitValue bitFlag = bitStream.Read(1);
-                        oggStream.Write(bitFlag);
+                        uint bitFlag = bitStream.Read(1);
+                        oggStream.Write(1, bitFlag);
 
                         if (bitFlag != 0)
                         {
                             highBits = bitStream.Read(5);
-                            oggStream.Write(highBits);
+                            oggStream.Write(5, highBits);
                         }
 
-                        residueCascade[j] = (uint)highBits * BitsInByte + lowBits;
+                        residueCascade[j] = highBits * 8 + lowBits;
                     }
 
                     for (int j = 0; j < residueClassificationCount; j++)
                     {
-                        for (int k = 0; k < BitsInByte; k++)
+                        for (int k = 0; k < 8; k++)
                         {
                             if ((residueCascade[j] & 1 << k) != 0)
                             {
-                                BitValue residueBook = bitStream.Read(8);
-                                oggStream.Write(residueBook);
+                                uint residueBook = bitStream.Read(8);
+                                oggStream.Write(8, residueBook);
 
                                 if (residueBook >= codebookCount)
                                 {
@@ -365,57 +365,59 @@ public class Vorbis : WWiseRIFFFile
                     }
                 }
 
-                BitValue mapCountLess1 = bitStream.Read(6);
-                oggStream.Write(mapCountLess1);
+                uint mapCountLess1 = bitStream.Read(6);
+                oggStream.Write(6, mapCountLess1);
 
-                int mapCount = mapCountLess1 + 1;
+                uint mapCount = mapCountLess1 + 1;
                 for (int i = 0; i < mapCount; i++)
                 {
-                    oggStream.Write(new BitValue(16)); // mapType
+                    oggStream.Write(16); // mapType
 
-                    BitValue subMapFlag = bitStream.Read(1);
-                    oggStream.Write(subMapFlag);
+                    uint subMapFlag = bitStream.Read(1);
+                    oggStream.Write(1, subMapFlag);
 
-                    int subMapCount = 1;
+                    uint subMapCount = 1;
                     if (subMapFlag != 0)
                     {
-                        BitValue subMapCountLess1 = bitStream.Read(4);
-                        oggStream.Write(subMapCountLess1);
+                        uint subMapCountLess1 = bitStream.Read(4);
+                        oggStream.Write(4, subMapCountLess1);
 
                         subMapCount = subMapCountLess1 + 1;
                     }
 
-                    BitValue squarePolarFlag = bitStream.Read(1);
-                    oggStream.Write(squarePolarFlag);
+                    uint squarePolarFlag = bitStream.Read(1);
+                    oggStream.Write(1, squarePolarFlag);
 
                     if (squarePolarFlag != 0)
                     {
-                        BitValue couplingStepsCountLess1 = bitStream.Read(8);
-                        oggStream.Write(couplingStepsCountLess1);
+                        uint couplingStepsCountLess1 = bitStream.Read(8);
+                        oggStream.Write(8, couplingStepsCountLess1);
 
-                        int j = 0;
-                        int couplingBitCount = ILog(fmt.Channels - 1u);
-                        int couplingStepsCount = couplingStepsCountLess1 + 1;
-                        while (j < couplingStepsCount)
+                        int couplingBitCount = fmt.Channels - 1;
+                        if (couplingBitCount > 0)
                         {
-                            BitValue magnitude = bitStream.Read(couplingBitCount);
-                            BitValue angle = bitStream.Read(couplingBitCount);
+                            couplingBitCount = BitOperations.Log2((uint)fmt.Channels - 1) + 1;
+                        }
 
-                            oggStream.Write(magnitude);
-                            oggStream.Write(angle);
+                        uint couplingStepsCount = couplingStepsCountLess1 + 1;
+                        for (int j = 0; j < couplingStepsCount; j++)
+                        {
+                            uint magnitude = bitStream.Read(couplingBitCount);
+                            uint angle = bitStream.Read(couplingBitCount);
+
+                            oggStream.Write(couplingBitCount, magnitude);
+                            oggStream.Write(couplingBitCount, angle);
 
                             if (angle == magnitude || magnitude >= fmt.Channels || angle >= fmt.Channels)
                             {
                                 Logger.Warning($"Invalid coupling");
                                 return false;
                             }
-
-                            j++;
                         }
                     }
 
-                    BitValue mapReserved = bitStream.Read(2);
-                    oggStream.Write(mapReserved);
+                    uint mapReserved = bitStream.Read(2);
+                    oggStream.Write(2, mapReserved);
 
                     if (mapReserved != 0)
                     {
@@ -427,8 +429,8 @@ public class Vorbis : WWiseRIFFFile
                     {
                         for (int j = 0; j < fmt.Channels; j++)
                         {
-                            BitValue mapMux = bitStream.Read(4);
-                            oggStream.Write(mapMux);
+                            uint mapMux = bitStream.Read(4);
+                            oggStream.Write(4, mapMux);
 
                             if (mapMux >= subMapCount)
                             {
@@ -440,10 +442,10 @@ public class Vorbis : WWiseRIFFFile
 
                     for (int j = 0; j < subMapCount; j++)
                     {
-                        oggStream.Write(bitStream.Read(8)); // timeConfig
+                        oggStream.Write(8, bitStream.Read(8)); // timeConfig
 
-                        BitValue floorNumber = bitStream.Read(8);
-                        oggStream.Write(floorNumber);
+                        uint floorNumber = bitStream.Read(8);
+                        oggStream.Write(8, floorNumber);
 
                         if (floorNumber >= floorCount)
                         {
@@ -451,8 +453,8 @@ public class Vorbis : WWiseRIFFFile
                             return false;
                         }
 
-                        BitValue residueNumber = bitStream.Read(8);
-                        oggStream.Write(residueNumber);
+                        uint residueNumber = bitStream.Read(8);
+                        oggStream.Write(8, residueNumber);
 
                         if (residueNumber >= residueCount)
                         {
@@ -462,25 +464,29 @@ public class Vorbis : WWiseRIFFFile
                     }
                 }
 
-                BitValue modeCountLess1 = bitStream.Read(6);
-                oggStream.Write(modeCountLess1);
+                uint modeCountLess1 = bitStream.Read(6);
+                oggStream.Write(6, modeCountLess1);
 
-                modeBitCount = ILog(modeCountLess1);
+                modeBitCount = (int)modeCountLess1;
+                if (modeBitCount > 0)
+                {
+                    modeBitCount = BitOperations.Log2(modeCountLess1) + 1;
+                }
 
-                int modeCount = modeCountLess1 + 1;
+                uint modeCount = modeCountLess1 + 1;
                 blockFlags = new bool[modeCount];
                 for (int i = 0; i < modeCount; i++)
                 {
-                    BitValue blockFlag = bitStream.Read(1);
-                    oggStream.Write(blockFlag);
+                    uint blockFlag = bitStream.Read(1);
+                    oggStream.Write(1, blockFlag);
 
                     blockFlags[i] = blockFlag != 0;
 
-                    oggStream.Write(new BitValue(16)); // windowType
-                    oggStream.Write(new BitValue(16)); // transformType
+                    oggStream.Write(16); // windowType
+                    oggStream.Write(16); // transformType
 
-                    BitValue mapNumber = bitStream.Read(8);
-                    oggStream.Write(mapNumber);
+                    uint mapNumber = bitStream.Read(8);
+                    oggStream.Write(8, mapNumber);
 
                     if (mapNumber >= mapCount)
                     {
@@ -489,19 +495,18 @@ public class Vorbis : WWiseRIFFFile
                     }
                 }
 
-                oggStream.Write(new BitValue(1, 1)); // framing
+                oggStream.Write(1, 1); // framing
                 oggStream.FlushPacket();
                 oggStream.FlushPage();
 
-                long align = BitsInByte - 1;
-                long read = bitStream.Position - setupPacket.Offset * BitsInByte;
+                long read = bitStream.Position - setupPacket.Offset * 8;
 
-                read += align;
-                read &= ~align;
+                read += 7;
+                read &= ~7;
 
-                if (read != setupPacket.Size * BitsInByte)
+                if (read != setupPacket.Size * 8)
                 {
-                    Logger.Warning($"Expected {setupPacket.Size * BitsInByte} bits, got {bitStream.Position}");
+                    Logger.Warning($"Expected {setupPacket.Size * 8} bits, got {bitStream.Position}");
                     return false;
                 }
 
@@ -520,21 +525,21 @@ public class Vorbis : WWiseRIFFFile
 
     private static void WriteHeader(OGGStream oggStream, VorbisHeaderType type)
     {
-        oggStream.Write(new BitValue(8, (uint)type));
+        oggStream.Write(8, (uint)type);
 
         foreach (byte c in "vorbis"u8)
         {
-            oggStream.Write(new BitValue(8, c));
+            oggStream.Write(8, c);
         }
     }
 
     private static void WriteString(OGGStream oggStream, ReadOnlySpan<char> value)
     {
-        oggStream.Write(new BitValue(32, (uint)value.Length));
+        oggStream.Write(32, (uint)value.Length);
 
         foreach (char c in value)
         {
-            oggStream.Write(new BitValue(8, c));
+            oggStream.Write(8, c);
         }
     }
 }

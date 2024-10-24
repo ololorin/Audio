@@ -122,13 +122,13 @@ public class AudioManager
         for (int i = 0; i < events.Length; i++)
         {
             string eventName = events[i];
-            if (FNVID<uint>.TryMatch(eventName, out FNVID<uint>? match))
+            if (FNVID<uint>.HasMatch(eventName, out FNVID<uint>? match))
             {
                 Logger.Progress($"Found match {match.Value.Value} with {eventName}", ++matched, events.Length);
             }
             else
             {
-                Logger.Warning($"Unable to find a match for {eventName}");
+                Logger.Progress($"Unable to find a match for {eventName}", matched, events.Length);
             }
         }
 
@@ -145,13 +145,13 @@ public class AudioManager
         for (int i = 0; i < externalsPaths.Length; i++)
         {
             string externalName = externalsPaths[i];
-            if (FNVID<ulong>.TryMatch(externalName, out FNVID<ulong>? match))
+            if (FNVID<ulong>.HasMatch(externalName, out FNVID<ulong>? match))
             {
-                Logger.Progress($"Found match {match.Value.Value} with {externalName}", ++matched, externalsCount);
+                Logger.Progress($"Found match {match.Value.Value} with {externalName}", ++matched, externalsPaths.Length);
             }
             else
             {
-                Logger.Warning($"Unable to find a match for {externalName}");
+                Logger.Progress($"Unable to find a match for {externalName}", matched, externalsPaths.Length);
             }
         }
 

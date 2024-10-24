@@ -6,7 +6,7 @@ public record Folder : IReadable<BinaryReader>
 {
     private readonly long _baseOffset;
 
-    public FNVID<uint> ID { get; set; }
+    public uint ID { get; set; }
     public uint Offset { get; set; }
     public string? Name { get; set; }
 
@@ -41,7 +41,7 @@ public record Folder : IReadable<BinaryReader>
         }
 
         Name = sb.ToString();
-        FNVID<uint>.TryMatch(Name, out _);
+        FNVID<uint>.TryMatch(Name);
 
         reader.BaseStream.Position = curOffset;
     }

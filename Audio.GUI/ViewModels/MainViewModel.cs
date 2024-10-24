@@ -73,15 +73,8 @@ public partial class MainViewModel : ViewModelBase
         {
             IReadOnlyList<IStorageFile> files = await PlatformServiceProvider.StorageProvider.OpenFilePickerAsync(new() { Title = "Pick file(s)", AllowMultiple = true });
             IEnumerable<string> paths = files.Select(x => x.TryGetLocalPath() ?? "");
-            if (paths.Any())
-            {
-                _audioManager.Clear();
-                int loaded = await Task.Run(() => _audioManager.LoadFiles(paths.ToArray()));
-                if (loaded > 0)
-                {
-                    _treeViewModel.Update();
-                }
-            }
+
+            await LoadFiles(paths);
         }
     }
     
@@ -102,15 +95,7 @@ public partial class MainViewModel : ViewModelBase
                 }
             }
 
-            if (files.Count != 0)
-            {
-                _audioManager.Clear();
-                int loaded = await Task.Run(() => _audioManager.LoadFiles([.. files]));
-                if (loaded > 0)
-                {
-                    _treeViewModel.Update();
-                }
-            }
+            await LoadFiles(files);
         }
     }
     
@@ -122,31 +107,6 @@ public partial class MainViewModel : ViewModelBase
 
     [RelayCommand]
     public async Task ExportAll() => await ExportEntry([EntryType.Bank, EntryType.Sound, EntryType.EmbeddedSound, EntryType.External]);
-
-    private async Task ExportEntry(IEnumerable<EntryType> types)
-    {
-        if (PlatformServiceProvider.StorageProvider != null)
-        {
-            IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new() { AllowMultiple = false });
-
-            IStorageFolder? folder = folders.FirstOrDefault();
-            if (folder != null)
-            {
-                string? path = folder.TryGetLocalPath();
-                if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-                {
-                    if (_treeViewModel.Checked.Any())
-                    {
-                        await Task.Run(() => _audioManager.DumpEntries(path, _treeViewModel.Checked.OfType<EntryTreeNode>().Select(x => x.Entry)));
-                    }
-                    else
-                    {
-                        await Task.Run(() => _audioManager.DumpEntries(path, types));
-                    }
-                }
-            }
-        }
-    }
     
     [RelayCommand]
     public async Task ExportHierarchy()
@@ -220,6 +180,44 @@ public partial class MainViewModel : ViewModelBase
         await Task.Run(() => _audioManager.UpdatedEvents(File.ReadAllLines(EventPath)));
         await Task.Run(_audioManager.ProcessEvents);
         await Dispatcher.UIThread.InvokeAsync(_treeViewModel.Update);
+    }
+
+    public async Task LoadFiles(IEnumerable<string> files)
+    {
+        if (files.Any())
+        {
+            _audioManager.Clear();
+            int loaded = await Task.Run(() => _audioManager.LoadFiles([.. files]));
+            if (loaded > 0)
+            {
+                await Dispatcher.UIThread.InvokeAsync(_treeViewModel.Update);
+            }
+        }
+    }
+
+    private async Task ExportEntry(IEnumerable<EntryType> types)
+    {
+        if (PlatformServiceProvider.StorageProvider != null)
+        {
+            IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new() { AllowMultiple = false });
+
+            IStorageFolder? folder = folders.FirstOrDefault();
+            if (folder != null)
+            {
+                string? path = folder.TryGetLocalPath();
+                if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                {
+                    if (_treeViewModel.Checked.Any())
+                    {
+                        await Task.Run(() => _audioManager.DumpEntries(path, _treeViewModel.Checked.OfType<EntryTreeNode>().Select(x => x.Entry)));
+                    }
+                    else
+                    {
+                        await Task.Run(() => _audioManager.DumpEntries(path, types));
+                    }
+                }
+            }
+        }
     }
 
     partial void OnConvertChanged(bool value)

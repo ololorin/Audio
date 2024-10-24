@@ -36,23 +36,43 @@ public struct FNVID<T>  where T : struct
         reader.Read(MemoryMarshal.AsBytes(new Span<T>(ref value)));
         return new(value);
     }
-    public static bool TryMatch(string value, [NotNullWhen(true)] out FNVID<T>? match)
+    public static bool HasMatch(string value, [NotNullWhen(true)] out FNVID<T>? match)
     {
         T hash = Hash(value);
 
-        if (!_names.TryAdd(hash, value) && !string.IsNullOrEmpty(_names[hash]))
+        if (_names.TryGetValue(hash, out string? name))
         {
-            match = null;
+            if (string.IsNullOrEmpty(name))
+            {
+                _names[hash] = value;
+            }
+
+            match = hash;
+            return true;
+        }
+
+        match = null;
+        return false;
+    }
+    public static bool TryMatch(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
             return false;
         }
 
-        if (string.IsNullOrEmpty(_names[hash]))
+        T hash = Hash(value);
+
+        if (!_names.TryAdd(hash, value))
         {
-            _names[hash] = value;
+            if (string.IsNullOrEmpty(_names[hash]))
+            {
+                _names[hash] = value;
+                return true;
+            }
         }
 
-        match = hash;
-        return true;
+        return false;
     }
     public static int Count() => _names.Count;
     public static void Clear() => _names.Clear();

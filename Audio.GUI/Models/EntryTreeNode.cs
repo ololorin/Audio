@@ -31,6 +31,7 @@ public partial class EntryTreeNode : TreeNode
             {
                 foreach (KeyValuePair<FNVID<uint>, HashSet<EventTag>> evt in uintTag.Events)
                 {
+                    match |= regex.IsMatch(evt.Key.ToString());
                     foreach (EventTag tag in evt.Value)
                     {
                         match |= regex.IsMatch(tag.Type.ToString());

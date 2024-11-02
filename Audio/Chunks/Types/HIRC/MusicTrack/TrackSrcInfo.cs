@@ -20,7 +20,11 @@ public record TrackSrcInfo : IBankReadable
     {
         TrackID = reader.ReadUInt32();
         SourceID = reader.ReadUInt32();
-        EventID = reader.ReadUInt32();
+        if (reader.Version > 132)
+        {
+            EventID = reader.ReadUInt32();
+        }
+
         PlayAt = reader.ReadDouble();
         BeginTrimOffset = reader.ReadDouble();
         EndTrimOffset = reader.ReadDouble();

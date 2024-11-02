@@ -24,7 +24,11 @@ public record MusicTransDstRule : IBankReadable
         FadeOffset = reader.ReadInt32();
         CueFilterHash = reader.ReadUInt32();
         JumpToID = reader.ReadUInt32();
-        JumpToType = (JumpToSelType)reader.ReadUInt16();
+        if (reader.Version > 132)
+        {
+            JumpToType = (JumpToSelType)reader.ReadUInt16();
+        }
+
         EntryType = (TransitionEntryType)reader.ReadUInt16();
         PlayPreEntry = reader.ReadByte();
         DestMatchSourceCueName = reader.ReadByte();

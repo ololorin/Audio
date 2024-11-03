@@ -15,8 +15,7 @@ public abstract record Chunk : IBankReadable
         { DIDX.Signature, header => new DIDX(header) },
         { DATA.Signature, header => new DATA(header) },
     };
-    public Chunk? Parent { get; set; }
-    public string? Source { get; set; }
+
     public HeaderInfo Header { get; private set; }
 
     public Chunk(HeaderInfo header)
@@ -25,7 +24,6 @@ public abstract record Chunk : IBankReadable
     }  
 
     public abstract void Read(BankReader reader);
-
     public static bool TryParse(BankReader reader, [MaybeNullWhen(false)] out Chunk chunk)
     {
         chunk = null;

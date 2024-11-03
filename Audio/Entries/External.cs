@@ -1,7 +1,21 @@
 ﻿namespace Audio.Entries;
-public record External : TaggedEntry<ulong>
+public record External : AudioEntry
 {
-    public override string? Location => string.IsNullOrEmpty(ID.String) ? $"{FolderName}/{Name}.wem" : Name + (Path.GetExtension(Name) == ".wem" ? "" : ".wem");
+    private FNVID<ulong> _id;
 
-    public External() : base(EntryType.External) { }
+    public override ulong ID => _id.Value;
+    public override string? Name => _id.ToString();
+    public override string? Location => string.IsNullOrEmpty(_id.String) ? base.Location : Path.ChangeExtension(Name, Extension);
+
+    public External() : base(EntryType.External)
+    {
+        _id = new();
+    }
+
+    public override void Read(BankReader reader)
+    {
+        _id = reader.ReadUInt64();
+
+        base.Read(reader);
+    }
 }

@@ -1,4 +1,5 @@
-﻿using Audio.Chunks.Types.HIRC;
+﻿using Audio.Chunks;
+using Audio.Chunks.Types.HIRC;
 using Audio.Entries;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -15,9 +16,10 @@ public static class JsonExtensions
         _options.WriteIndented = true;
         _options.Converters.Add(new JsonStringEnumConverter());
         _options.Converters.Add(new FNVIDJsonConverter());
-        _options.TypeInfoResolverChain.Add(EntryContext.Default);
         _options.TypeInfoResolverChain.Add(FNVIDContext.Default);
         _options.TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+            .WithAddedModifier(PolymorphicTypeInfo<Entry>)
+            .WithAddedModifier(PolymorphicTypeInfo<Chunk>)
             .WithAddedModifier(PolymorphicTypeInfo<HIRCObject>)
             .WithAddedModifier(PolymorphicTypeInfo<IActionParameter>);
     }
@@ -32,6 +34,7 @@ public static class JsonExtensions
         _options.TypeInfoResolverChain.Remove(resolver);
     }
 
+    public static void Serialize<T>(this T? value, Stream stream) => JsonSerializer.Serialize(stream, value, _options);
     public static string Serialize<T>(this T? value) => JsonSerializer.Serialize(value, _options);
 
     public static T? Deserialize<T>(string value) => JsonSerializer.Deserialize<T>(value, _options); 
@@ -56,10 +59,6 @@ public static class JsonExtensions
         }
     }
 }
-
-[JsonSerializable(typeof(IEnumerable<Entry>))]
-[JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
-public partial class EntryContext : JsonSerializerContext { }
 
 [JsonSerializable(typeof(FNVID<uint>))]
 [JsonSourceGenerationOptions(WriteIndented = true, Converters = [typeof(FNVIDJsonConverter)], GenerationMode = JsonSourceGenerationMode.Serialization)]

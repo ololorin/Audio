@@ -1,39 +1,38 @@
-﻿using System.Text.Json.Serialization;
-
-namespace Audio.Entries;
-
-public record EventInfo(FNVID<uint> ID)
-{
-    public Dictionary<FNVID<uint>, HashSet<EventTag>> TagsByID { get; } = [];
-
-    [JsonIgnore]
-    public IEnumerable<FNVID<uint>> TargetIDs => TagsByID.Keys.AsEnumerable();
-    [JsonIgnore]
-    public Stack<EventTag> Tags { get; } = [];
-
-    public void AddTarget(FNVID<uint> id)
-    {
-        if (!TagsByID.TryGetValue(id, out HashSet<EventTag>? tags))
-        {
-            TagsByID[id] = tags = [];
-        }
-
-        foreach (EventTag tag in Tags)
-        {
-            tags.Add(tag);
-        }
-    }
-    public IEnumerable<EventTag> GetValues(FNVID<uint> id) => TagsByID.TryGetValue(id, out HashSet<EventTag>? tags) ? [ ..tags] : [];
-    public bool HasValue(FNVID<uint> id, FNVID<uint> type, FNVID<uint> value) => TagsByID.ContainsKey(id) && TagsByID[id].Contains(new(type, value));
-    public void SetValue(FNVID<uint> id, FNVID<uint> type, FNVID<uint> value)
-    {
-        if (!TagsByID.TryGetValue(id, out HashSet<EventTag>? tags))
-        {
-            TagsByID[id] = tags = [];
-        }
-
-        tags.Add(new(type, value));
-    }
-}
+﻿namespace Audio.Entries;
 
 public record EventTag(FNVID<uint> Type, FNVID<uint> Value);
+public record EventInfo(FNVID<uint> ID)
+{
+    public Dictionary<HashSet<EventTag>, HashSet<FNVID<uint>>> Groups { get; set; } = new Dictionary<HashSet<EventTag>, HashSet<FNVID<uint>>>(HashSet<EventTag>.CreateSetComparer());
+    public IEnumerable<FNVID<uint>> IDs => Groups.Values.SelectMany(x => x);
+    public IEnumerable<EventTag> Tags => Groups.Keys.SelectMany(x => x);
+    public Stack<EventTag> TagStack { get; } = [];
+    public void AddTarget(FNVID<uint> id)
+    {
+        HashSet<EventTag> tags = [.. TagStack];
+
+        if (!Groups.TryGetValue(tags, out HashSet<FNVID<uint>>? ids))
+        {
+            Groups[tags] = ids = [];
+        }
+
+        ids.Add(id);
+    }
+    public IEnumerable<IGrouping<FNVID<uint>, EventTag>> GetGroupsByID(FNVID<uint> id)
+    {
+        foreach (IGrouping<FNVID<uint>, EventTag> group in Groups.Where(tc => tc.Value.Contains(id)).SelectMany(x => x.Key).ToHashSet().GroupBy(x => x.Type))
+        {
+            yield return group;
+        }
+    }
+    public IEnumerable<FNVID<uint>> GetIDsByTags(HashSet<EventTag> tags)
+    {
+        foreach((_, HashSet<FNVID<uint>> ids) in Groups.Where(x => x.Key.SetEquals(tags)))
+        {
+            foreach (FNVID<uint> id in ids)
+            {
+                yield return id;
+            }
+        }
+    }
+}

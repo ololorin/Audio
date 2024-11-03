@@ -1,17 +1,15 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Audio.Chunks.Types.HIRC;
+﻿namespace Audio.Chunks.Types.HIRC;
 
 public record DialogueEvent : HIRCObject
 {
     public byte Probability { get; set; }
-    public DecisionTree Tree { get; set; }
+    public DecisionTree DecisionTree { get; set; }
     public ActionProperty[] Properties { get; set; } = [];
     public ActionModifier[] Modifiers { get; set; } = [];
 
     public DialogueEvent(HeaderInfo header) : base(header)
     {
-        Tree = new();
+        DecisionTree = new();
     }
 
     public override void Read(BankReader reader)
@@ -19,7 +17,7 @@ public record DialogueEvent : HIRCObject
         base.Read(reader);
 
         Probability = reader.ReadByte();
-        Tree.Read(reader);
+        DecisionTree.Read(reader);
 
         int propertyCount = reader.ReadByte();
         Properties = new ActionProperty[propertyCount];

@@ -3,7 +3,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using LibVLCSharp.Shared;
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 
 namespace Audio.GUI.ViewModels;
@@ -38,20 +37,23 @@ public partial class PlayerViewModel : ViewModelBase, IDisposable
         Volume = 100;
     }
 
-    public void LoadAudio(Entry? entry)
+    public void LoadAudio(AudioEntry? audioEntry)
     {
-        if (entry == null) return;
-        else if (entry.Type == EntryType.Bank)
+        if (audioEntry == null)
         {
-            Logger.Warning("Playing Bank type is not supported !!");
             return;
         }
 
-        Logger.Info($"Attempting to load audio {entry.Location}");
+        if (audioEntry.Convert == false)
+        {
+            return;
+        }
+
+        Logger.Info($"Attempting to load audio {audioEntry.Location}");
 
         IsChecked = false;
         MemoryStream memoryStream = new();
-        if (entry.TryConvert(memoryStream, out _))
+        if (audioEntry.TryWrite(memoryStream))
         {
             _stream?.Dispose();
             _stream = memoryStream;
@@ -61,12 +63,12 @@ public partial class PlayerViewModel : ViewModelBase, IDisposable
             _mediaPlayer.Media = new Media(_context, new StreamMediaInput(_stream));
             _mediaPlayer.Play();
 
-            Logger.Info($"{entry.Location} loaded successfully");
+            Logger.Info($"{audioEntry.Location} loaded successfully");
             return; 
         }
 
         
-        Logger.Info($"Unable to load {entry.Location}");
+        Logger.Info($"Unable to load {audioEntry.Location}");
         return;
     }
     private void MediaPlayer_PositionChanged(object? sender, MediaPlayerPositionChangedEventArgs e)

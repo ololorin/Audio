@@ -45,13 +45,13 @@ public record DecisionTree : IBankReadable
 
     private IEnumerable<FNVID<uint>> ResolveNode(DecisionTreeNode root, EventInfo eventInfo, int depth = 0)
     {
-        if (root.NodeIndex > 0 && root.NodeCount > 0 && root.NodeIndex + root.NodeCount < Tree.Length)
+        if (root.NodeIndex > 0 && root.NodeCount > 0 && root.NodeIndex + root.NodeCount <= Tree.Length)
         {
             Memory<DecisionTreeNode> children = Tree.Slice(root.NodeIndex, root.NodeCount);
             for (int i = 0; i < children.Length; i++)
             {
                 DecisionTreeNode child = children.Span[i];
-                eventInfo.Tags.Push(new(Arguments[depth].Group, child.Key != 0 ? child.Key : new("Any")));
+                eventInfo.TagStack.Push(new(Arguments[depth].Group, child.Key != 0 ? child.Key : new("Any")));
 
                 if (child.NodeCount > Tree.Length)
                 {
@@ -65,7 +65,7 @@ public record DecisionTree : IBankReadable
                     }
                 }
 
-                eventInfo.Tags.Pop();
+                eventInfo.TagStack.Pop();
             }
         }
     }

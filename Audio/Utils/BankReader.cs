@@ -7,6 +7,7 @@ public class BankReader : BinaryReader
 {
     private uint _version;
 
+    public string? Source { get; set; }
     public BKHD? Root { get; set; }
     public uint Version
     {
@@ -21,6 +22,9 @@ public class BankReader : BinaryReader
         }
     }
 
-    public BankReader(BinaryReader reader, bool leaveOpen = true) : this(reader.BaseStream, leaveOpen) { }
     public BankReader(Stream stream, bool leaveOpen = true) : base(stream, Encoding.UTF8, leaveOpen) { }
+    public BankReader(string path, bool leaveOpen = true) : this(File.OpenRead(path), leaveOpen)
+    {
+        Source = path;
+    }
 }

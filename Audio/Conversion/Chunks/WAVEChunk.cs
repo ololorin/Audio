@@ -1,7 +1,6 @@
-﻿using Audio.Conversion.Chunks;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
-namespace Audio.Conversion;
+namespace Audio.Conversion.Chunks;
 
 public abstract record WAVEChunk : IReadable<BinaryReader>
 {
@@ -10,6 +9,7 @@ public abstract record WAVEChunk : IReadable<BinaryReader>
     private readonly static Dictionary<string, Func<HeaderInfo, WAVEChunk>> s_chunks = new()
     {
         { FMT.Signature, header => new FMT(header) },
+        { AKD.Signature, header => new AKD(header) },
         { VORB.Signature, header => new VORB(header) },
         { JUNK.Signature, header => new JUNK(header) },
         { DATA.Signature, header => new DATA(header) },

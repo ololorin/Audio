@@ -21,7 +21,12 @@
 				</ia:EventTriggerBehavior>
 			</i:Interaction.Behaviors>
 		</TextBox>
-		<TreeDataGrid Grid.Row="1" Source="{Binding Source}">
+		<TreeDataGrid Grid.Row="1" Source="{Binding Source}" IsEnabled="{Binding IsEnabled}">
+			<TreeDataGrid.Transitions>
+				<Transitions>
+					<DoubleTransition Property="Opacity" Duration="0:00:00.500" />
+				</Transitions>
+			</TreeDataGrid.Transitions>
 			<i:Interaction.Behaviors>
 				<ia:EventTriggerBehavior EventName="KeyDown">
 					<ia:InvokeCommandAction Command="{Binding CopyCommand}" PassEventArgsToCommand="True"/>

@@ -5,7 +5,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace Audio.Conversion;
-public class WWiseCodebook
+public class Codebook
 {
     private const uint Signature = 0x564342;
 
@@ -13,7 +13,7 @@ public class WWiseCodebook
     private readonly int[] _codebookOffsets;
     private readonly int _codebookSize;
 
-    public WWiseCodebook(Stream stream)
+    public Codebook(Stream stream)
     {
         stream.Seek(-4, SeekOrigin.End);
 
@@ -277,12 +277,12 @@ public class WWiseCodebook
         }
     }
 
-    public static bool TryOpen(string path, [NotNullWhen(true)] out WWiseCodebook? codebook)
+    public static bool TryOpen(string path, [NotNullWhen(true)] out Codebook? codebook)
     {
         try
         {
             using Stream stream = File.OpenRead(path);
-            codebook = new WWiseCodebook(stream);
+            codebook = new Codebook(stream);
             return true;
         }
         catch (Exception) { }

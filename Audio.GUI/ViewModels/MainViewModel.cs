@@ -16,9 +16,11 @@ namespace Audio.GUI.ViewModels;
 public partial class MainViewModel : ViewModelBase
 {
     private readonly AudioManager _audioManager;
+    private readonly LogViewModel _logViewModel;
     private readonly TreeViewModel _treeViewModel;
     private readonly EntryViewModel _entryViewModel;
 
+    private string? _lastDirectory;
     [ObservableProperty]
     private bool convert;
     [ObservableProperty]
@@ -32,7 +34,7 @@ public partial class MainViewModel : ViewModelBase
             return _platformServiceProvider ??= Ioc.Default.GetRequiredService<IPlatformServiceProvider>();
         }
     }
-
+    public LogViewModel LogViewModel => _logViewModel;
     public TreeViewModel TreeViewModel => _treeViewModel;
     public EntryViewModel EntryViewModel => _entryViewModel;
     public string? VOPath
@@ -57,7 +59,8 @@ public partial class MainViewModel : ViewModelBase
     public MainViewModel()
     {
         _audioManager = new();
-        _entryViewModel = new();
+        _logViewModel = new();
+        _entryViewModel = new(_audioManager);
         _treeViewModel = new(_audioManager, _entryViewModel);
 
         ConfigManager.Instance.Load();
@@ -71,9 +74,11 @@ public partial class MainViewModel : ViewModelBase
     {
         if (PlatformServiceProvider.StorageProvider !=  null)
         {
-            IReadOnlyList<IStorageFile> files = await PlatformServiceProvider.StorageProvider.OpenFilePickerAsync(new() { Title = "Pick file(s)", AllowMultiple = true });
+            IStorageFolder? lastDirectory = await PlatformServiceProvider.StorageProvider.TryGetFolderFromPathAsync(_lastDirectory);
+            IReadOnlyList<IStorageFile> files = await PlatformServiceProvider.StorageProvider.OpenFilePickerAsync(new() { Title = "Pick file(s)", AllowMultiple = true, SuggestedStartLocation = lastDirectory });
             IEnumerable<string> paths = files.Select(x => x.TryGetLocalPath() ?? "");
 
+            _lastDirectory = Path.GetDirectoryName(paths.FirstOrDefault());
             await LoadFiles(paths);
         }
     }
@@ -83,7 +88,8 @@ public partial class MainViewModel : ViewModelBase
     {
         if (PlatformServiceProvider.StorageProvider != null)
         {
-            IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new());
+            IStorageFolder? lastDirectory = await PlatformServiceProvider.StorageProvider.TryGetFolderFromPathAsync(_lastDirectory);
+            IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new() { SuggestedStartLocation = lastDirectory });
 
             List<string> files = [];
             foreach (IStorageFolder folder in folders)
@@ -95,6 +101,7 @@ public partial class MainViewModel : ViewModelBase
                 }
             }
 
+            _lastDirectory = Path.GetDirectoryName(files.FirstOrDefault());
             await LoadFiles(files);
         }
     }
@@ -109,19 +116,35 @@ public partial class MainViewModel : ViewModelBase
     public async Task ExportAll() => await ExportEntry([EntryType.Bank, EntryType.Sound, EntryType.EmbeddedSound, EntryType.External]);
     
     [RelayCommand]
-    public async Task ExportHierarchy()
+    public async Task ExportInfo()
     {
         if (PlatformServiceProvider.StorageProvider != null)
         {
             IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new() { AllowMultiple = false });
 
-            IStorageFolder? folder = folders.FirstOrDefault();
-            if (folder != null)
+            if (folders.Any())
             {
-                string? path = folder.TryGetLocalPath();
-                if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                string? path = folders[0].TryGetLocalPath();
+                if (Directory.Exists(path) && Directory.Exists(_lastDirectory))
                 {
-                    await Task.Run(() => _audioManager.DumpHierarchies(path));
+                    await Task.Run(() => _audioManager.DumpInfos(_lastDirectory, path));
+                }
+            }
+        }
+    }
+    [RelayCommand]
+    public async Task ExportEvent()
+    {
+        if (PlatformServiceProvider.StorageProvider != null)
+        {
+            IReadOnlyList<IStorageFolder> folders = await PlatformServiceProvider.StorageProvider.OpenFolderPickerAsync(new() { AllowMultiple = false });
+
+            if (folders.Any())
+            {
+                string? path = folders[0].TryGetLocalPath();
+                if (Directory.Exists(path))
+                {
+                    await Task.Run(() => _audioManager.DumpEvents(path));
                 }
             }
         }
@@ -165,7 +188,7 @@ public partial class MainViewModel : ViewModelBase
         }
 
         await Task.Run(() => _audioManager.UpdateExternals(File.ReadAllLines(VOPath)));
-        await Dispatcher.UIThread.InvokeAsync(_treeViewModel.Update);
+        await _treeViewModel.Update();
     }
     
     [RelayCommand]
@@ -179,7 +202,7 @@ public partial class MainViewModel : ViewModelBase
 
         await Task.Run(() => _audioManager.UpdatedEvents(File.ReadAllLines(EventPath)));
         await Task.Run(_audioManager.ProcessEvents);
-        await Dispatcher.UIThread.InvokeAsync(_treeViewModel.Update);
+        await _treeViewModel.Update();
     }
 
     public async Task LoadFiles(IEnumerable<string> files)
@@ -190,7 +213,7 @@ public partial class MainViewModel : ViewModelBase
             int loaded = await Task.Run(() => _audioManager.LoadFiles([.. files]));
             if (loaded > 0)
             {
-                await Dispatcher.UIThread.InvokeAsync(_treeViewModel.Update);
+                await _treeViewModel.Update();
             }
         }
     }

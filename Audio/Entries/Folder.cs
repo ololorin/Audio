@@ -1,5 +1,4 @@
-﻿using Audio.Extensions;
-using System.Text;
+﻿using System.Text;
 
 namespace Audio.Entries;
 public record Folder : IReadable<BinaryReader>

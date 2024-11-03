@@ -1,6 +1,6 @@
 ﻿using Audio.Chunks.Types.HIRC;
 using Audio.Entries;
-using Audio.Extensions;
+using System.Text.Json.Serialization;
 
 namespace Audio.Chunks;
 public record HIRC : Chunk
@@ -9,6 +9,9 @@ public record HIRC : Chunk
 
     private readonly Dictionary<FNVID<uint>, HIRCObject> _objectDict = [];
 
+    [JsonIgnore]
+    public BKHD? BKHD { get; set; }
+    [JsonIgnore]
     public AudioManager? Manager { get; set; }
     public IEnumerable<HIRCObject> Objects => _objectDict.Values;
 
@@ -21,24 +24,8 @@ public record HIRC : Chunk
         {
             if (HIRCObject.TryParse(reader, out HIRCObject? hircObject))
             {
-                hircObject.HIRC = this;
                 _objectDict.Add(hircObject.ID, hircObject);
             }
-        }
-    }
-
-    public void Dump(string outputPath)
-    {
-        if (_objectDict.Count > 0)
-        {
-            string? outputDirectory = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(outputDirectory))
-            {
-                Directory.CreateDirectory(outputDirectory);
-            }
-
-            string json = _objectDict.Serialize();
-            File.WriteAllText(outputPath, json);
         }
     }
 
@@ -69,19 +56,19 @@ public record HIRC : Chunk
                 targets.AddRange(seqContainer.ChildrenIDs);
                 break;
             case SwitchContainer switchContainer:
-                eventInfo.Tags.Push(new(switchContainer.GroupID, switchContainer.DefaultSwitch));
+                eventInfo.TagStack.Push(new(switchContainer.GroupID, switchContainer.DefaultSwitch));
                 foreach (SwitchGroup group in switchContainer.SwitchGroups)
                 {
-                    eventInfo.Tags.Push(new(switchContainer.GroupID, group.SwitchID));
+                    eventInfo.TagStack.Push(new(switchContainer.GroupID, group.SwitchID));
                     foreach(FNVID<uint> node in group.Nodes)
                     {
                         ResolveObject(node, eventInfo);
                     }
 
-                    eventInfo.Tags.Pop();
+                    eventInfo.TagStack.Pop();
                 }
 
-                eventInfo.Tags.Pop();
+                eventInfo.TagStack.Pop();
                 break;
             case MusicSequence musicSeq:
                 if (musicSeq.PlaylistCount > 0)
@@ -94,14 +81,14 @@ public record HIRC : Chunk
 
                 break;
             case MusicSwitch musicSwitch:
-                foreach (FNVID<uint> id in musicSwitch.Tree.Resolve(eventInfo))
+                foreach (FNVID<uint> id in musicSwitch.DecisionTree.Resolve(eventInfo))
                 {
                     ResolveObject(id, eventInfo);
                 }
 
                 break;
             case DialogueEvent dialogueEvent:
-                foreach (FNVID<uint> id in dialogueEvent.Tree.Resolve(eventInfo))
+                foreach (FNVID<uint> id in dialogueEvent.DecisionTree.Resolve(eventInfo))
                 {
                     ResolveObject(id, eventInfo);
                 }
@@ -113,11 +100,11 @@ public record HIRC : Chunk
             case MusicTrack musicTrack:
                 foreach (BankSourceData bankSourceData in musicTrack.BankSources)
                 {
-                    if (bankSourceData.MediaInformation.IsLanguageSpecific && musicTrack.HIRC?.Parent is BKHD bkhd)
+                    if (bankSourceData.MediaInformation.IsLanguageSpecific && BKHD is BKHD bkhd)
                     {
-                        eventInfo.Tags.Push(new(new("Language"), new(bkhd.LangaugeID)));
+                        eventInfo.TagStack.Push(new(new("Language"), new(bkhd.LangaugeID)));
                         eventInfo.AddTarget(bankSourceData.MediaInformation.ID);
-                        eventInfo.Tags.Pop();
+                        eventInfo.TagStack.Pop();
                     }
                     else
                     {
@@ -133,7 +120,7 @@ public record HIRC : Chunk
                     {
                         foreach (MusicSwitch musicSwitch in hirc.Objects.OfType<MusicSwitch>())
                         {
-                            if (musicSwitch.Tree.Arguments.Any(x => x.Group == setStateActionParameter.StateGroupID))
+                            if (musicSwitch.DecisionTree.Arguments.Any(x => x.Group == setStateActionParameter.StateGroupID))
                             {
                                 hirc.ResolveObject(musicSwitch, eventInfo);
                             }
@@ -159,11 +146,11 @@ public record HIRC : Chunk
                 break;
             case Types.HIRC.Sound sound:
                 {
-                    if (sound.SourceData.MediaInformation.IsLanguageSpecific && sound.HIRC?.Parent is BKHD bkhd)
+                    if (sound.SourceData.MediaInformation.IsLanguageSpecific && BKHD is BKHD bkhd)
                     {
-                        eventInfo.Tags.Push(new(new("Language"), new(bkhd.LangaugeID)));
+                        eventInfo.TagStack.Push(new(new("Language"), new(bkhd.LangaugeID)));
                         eventInfo.AddTarget(sound.SourceData.MediaInformation.ID);
-                        eventInfo.Tags.Pop();
+                        eventInfo.TagStack.Pop();
                     }
                     else
                     {

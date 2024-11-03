@@ -1,4 +1,6 @@
 ﻿using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,11 +12,12 @@ namespace Audio.GUI.ViewModels;
 
 public partial class LogViewModel : ViewModelBase, ILogger, IDisposable
 {
-    private bool _scrolling = false;
+    private readonly object _logLock = new();
 
     [ObservableProperty]
+    private bool isScrolling;
+    [ObservableProperty]
     private ObservableCollection<string> logs = [];
-
 
     public LogViewModel()
     {
@@ -29,16 +32,17 @@ public partial class LogViewModel : ViewModelBase, ILogger, IDisposable
     [RelayCommand]
     public async Task ScrollToEnd(ScrollChangedEventArgs e)
     {
-        if (!_scrolling && e.Source is ScrollViewer scrollViewer && e.ExtentDelta != Avalonia.Vector.Zero)
+        if (!IsScrolling && e.Source is ScrollViewer scrollViewer && e.ExtentDelta != Avalonia.Vector.Zero)
         {
-            _scrolling = true;
             await Dispatcher.UIThread.InvokeAsync(scrollViewer.ScrollToEnd);
-            _scrolling = false;
         }
     }
     public void Log(LogLevel logLevel, string message)
     {
-        Logs.Add($"[{logLevel}]: {message}");
+        lock (_logLock)
+        {
+            Logs.Add($"[{logLevel}]: {message}");
+        }
     }
     public void Dispose()
     {

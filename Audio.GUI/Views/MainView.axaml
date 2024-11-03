@@ -26,7 +26,8 @@
 				<MenuItem Header="Export Banks" Command="{Binding ExportBankCommand}"/>
 				<MenuItem Header="Export All" Command="{Binding ExportAllCommand}"/>
 				<Separator/>
-				<MenuItem Header="Dump Info" Command="{Binding ExportHierarchyCommand}"/>
+				<MenuItem Header="Dump Info" Command="{Binding ExportInfoCommand}"/>
+				<MenuItem Header="Dump Events" Command="{Binding ExportEventCommand}"/>
 			</MenuItem>
 			<MenuItem Header="Options">
 				<MenuItem Header="Set VO Path" Command="{Binding SetVOPathCommand}"/>
@@ -36,7 +37,6 @@
 				<MenuItem Header="Load Events" Command="{Binding LoadEventsCommand}"/>
 				<Separator/>
 				<CheckBox Content="Convert" IsChecked="{Binding Convert}"/>
-				<CheckBox Content="Playlist" IsChecked="{Binding Playlist}"/>
 			</MenuItem>
 		</Menu>
 		<Grid RowDefinitions="*, Auto, 0.4*" ColumnDefinitions="0.3*, Auto, *" DragDrop.AllowDrop="True">
@@ -50,9 +50,7 @@
 			<views:EntryView Grid.Row="0" Grid.Column="2" DataContext="{Binding EntryViewModel}"/>
 			<GridSplitter Grid.Column="1" VerticalAlignment="Stretch" Background="White" />
 			<GridSplitter Grid.Row="1" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" Background="White" />
-			<views:LogView Grid.Row="2" Grid.ColumnSpan="3" BorderBrush="WhiteSmoke" BorderThickness="1">
-				<vm:LogViewModel/>	
-			</views:LogView>
+			<views:LogView Grid.Row="2" Grid.ColumnSpan="3" DataContext="{Binding LogViewModel}" IsScrolling="{Binding IsScrolling}" BorderBrush="WhiteSmoke" BorderThickness="1" />
 		</Grid>
 	</DockPanel>
 </UserControl>

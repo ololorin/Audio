@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Text;
 
 namespace Audio.Conversion.Codecs;
-public class PTADPCM : WWiseRIFFFile
+public class PTADPCM : RIFFStream
 {
     private static readonly short[] SampleSteps = [-28, -20, -14, -10, -7, -5, -3, -1, 1, 3, 5, 7, 10, 14, 20, 28];
     private static readonly int[] SampleIndices = [2, 2, 1, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 1, 2, 2];
@@ -11,9 +11,9 @@ public class PTADPCM : WWiseRIFFFile
 
     public override string Extension => ".wav";
 
-    public PTADPCM(WWiseRIFFHeader header) : base(header) { }
+    public PTADPCM(Stream stream, RIFFHeader header) : base(stream, header) { }
 
-    public override bool TryWrite(Stream stream)
+    public override void CopyTo(Stream destination, int bufferSize = 81920)
     {
         if (Header.GetChunk(out FMT? fmt))
         {
@@ -36,7 +36,7 @@ public class PTADPCM : WWiseRIFFFile
                 short[] buffer = ArrayPool<short>.Shared.Rent((int)(fmt.Channels * numSamples));
                 try
                 {
-                    using BinaryReader reader = new(Header.Stream, Encoding.UTF8, true);
+                    using BinaryReader reader = new(_baseStream, Encoding.UTF8, true);
                     reader.BaseStream.Position = data.Header.Offset;
 
                     for (int i = 0; i < numSamples; i += samplePerFrame)
@@ -102,9 +102,9 @@ public class PTADPCM : WWiseRIFFFile
                         BitsPerSample = 0x10
                     };
 
-                    using BinaryWriter writer = new(stream, Encoding.UTF8, true);
+                    using BinaryWriter writer = new(destination, Encoding.UTF8, true);
 
-                    writer.Write(Encoding.UTF8.GetBytes(WWiseRIFFHeader.Signature));
+                    writer.Write(Encoding.UTF8.GetBytes(RIFFHeader.Signature));
                     writer.Write((uint)(fileSize - 8));
                     writer.Write(Encoding.UTF8.GetBytes(WAVEChunk.Signature));
                     writer.Write(Encoding.UTF8.GetBytes(fmtHeader.Signature));
@@ -126,22 +126,18 @@ public class PTADPCM : WWiseRIFFFile
                         }
                     }
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     Logger.Warning($"Error while converting PTADPCM RIFF file, {e}");
-                    return false;
+                    return;
                 }
                 finally
                 {
                     ArrayPool<short>.Shared.Return(buffer);
                 }
-
-                stream.Position = 0;
-                return true;
             }
         }
 
-        stream.Position = 0;
-        return false;
+        destination.Position = 0;
     }
 }

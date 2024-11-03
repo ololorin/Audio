@@ -1,6 +1,6 @@
 ﻿using Audio.Entries;
 using CommunityToolkit.Mvvm.ComponentModel;
-using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace Audio.GUI.Models;
@@ -8,6 +8,9 @@ public partial class EntryTreeNode : TreeNode
 {
     [ObservableProperty]
     private Entry entry;
+
+    [ObservableProperty]
+    private EventInfo? eventInfo;
 
     public EntryTreeNode(Entry entry)
     {
@@ -24,32 +27,25 @@ public partial class EntryTreeNode : TreeNode
         Regex regex = new(searchText, RegexOptions.IgnoreCase);
 
         bool match = base.HasMatch(searchText);
-        if (Entry is TaggedEntry<uint> uintTag)
+        match |= regex.IsMatch(Entry.ID.ToString());
+        match |= regex.IsMatch(Entry.Type.ToString());
+        match |= regex.IsMatch(Entry.Location ?? "");
+        match |= regex.IsMatch(Entry.Source ?? "");
+        match |= regex.IsMatch(Entry.Offset.ToString());
+        match |= regex.IsMatch(Entry.Size.ToString());
+
+        if (EventInfo != null)
         {
-            match |= regex.IsMatch(uintTag.ID.ToString());
-            if (uintTag.Events.Count > 0)
+            match |= regex.IsMatch(EventInfo.ID.ToString());
+            foreach (IGrouping<FNVID<uint>, EventTag> group in EventInfo.GetGroupsByID((uint)Entry.ID))
             {
-                foreach (KeyValuePair<FNVID<uint>, HashSet<EventTag>> evt in uintTag.Events)
+                match |= regex.IsMatch(group.Key.ToString());
+                foreach (EventTag tag in group)
                 {
-                    match |= regex.IsMatch(evt.Key.ToString());
-                    foreach (EventTag tag in evt.Value)
-                    {
-                        match |= regex.IsMatch(tag.Type.ToString());
-                        match |= regex.IsMatch(tag.Value.ToString());
-                    }
+                    match |= regex.IsMatch(tag.Value.ToString());
                 }
             }
         }
-        else if (Entry is TaggedEntry<ulong> ulongTag)
-        {
-            match |= regex.IsMatch(ulongTag.ID.ToString());
-        }
-
-        match |= regex.IsMatch(Entry.Type.ToString());
-        match |= regex.IsMatch(Entry.Location ?? "");
-        match |= regex.IsMatch(Entry.Source);
-        match |= regex.IsMatch(Entry.Offset.ToString());
-        match |= regex.IsMatch(Entry.Size.ToString());
 
         return match;
     }

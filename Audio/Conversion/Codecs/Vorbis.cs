@@ -4,26 +4,26 @@ using System.Buffers.Binary;
 using System.Numerics;
 
 namespace Audio.Conversion.Codecs;
-public class Vorbis : WWiseRIFFFile
+public class Vorbis : RIFFStream
 {
     private const string Codebook = "packed_codebooks_aoTuV_603.bin";
 
     public override string Extension => ".ogg";
 
-    public Vorbis(WWiseRIFFHeader header) : base(header) { }
+    public Vorbis(Stream stream, RIFFHeader header) : base(stream, header) { }
 
-    public override bool TryWrite(Stream stream)
+    public override void CopyTo(Stream destination, int bufferSize = 81920)
     {
-        using OGGStream oggStream = new(stream);
+        using OGGStream oggStream = new(destination);
 
         if (Header.GetChunk(out VORB? vorb) && Header.GetChunk(out DATA? data))
         {
-            Header.Stream.Position = data.Header.Offset;
+            Position = data.Header.Offset;
 
             if (vorb.SeekTableSize > vorb.VorbisDataOffset)
             {
                 Logger.Warning("Seek table is corrupted !!");
-                return false;
+                return;
             }
 
             Span<byte> buffer = stackalloc byte[4]; 
@@ -31,10 +31,10 @@ public class Vorbis : WWiseRIFFFile
             List<VorbisSeekEntry> seekTable = [];
             for (int i = 0; i < vorb.SeekTableSize / 4; i++)
             {
-                Header.Stream.ReadExactly(buffer[..2]);
+                ReadExactly(buffer[..2]);
                 uint frameOffset = BinaryPrimitives.ReadUInt16LittleEndian(buffer) + (seekTable.LastOrDefault()?.FrameOffset ?? 0);
 
-                Header.Stream.ReadExactly(buffer[..2]);
+                ReadExactly(buffer[..2]);
                 uint fileOffset = BinaryPrimitives.ReadUInt16LittleEndian(buffer) + (seekTable.LastOrDefault()?.FileOffset ?? 0);
 
                 seekTable.Add(new(frameOffset, fileOffset));
@@ -42,23 +42,23 @@ public class Vorbis : WWiseRIFFFile
 
             if (TryGenerateHeader(oggStream, out bool[] blockFlags, out int modeBitCount))
             {
-                Header.Stream.Position = data.Header.Offset + vorb.VorbisDataOffset;
+                Position = data.Header.Offset + vorb.VorbisDataOffset;
 
                 int prevBlockSize = 0;
                 bool prevBlockFlag = false;
                 bool needMod = blockFlags.Length > 0 && modeBitCount > 0;
-                using BitStream bitStream = new(Header.Stream, false, true);
-                while (Header.Stream.Position < data.Header.Offset + data.Header.Length)
+                using BitStream bitStream = new(_baseStream, false, true);
+                while (Position < data.Header.Offset + data.Header.Length)
                 {
-                    VorbisPacket packet = new(Header.Stream, Header.Stream.Position);
+                    VorbisPacket packet = new(_baseStream, Position);
 
-                    if (Header.Stream.Position + packet.Size > data.Header.Offset + data.Header.Length)
+                    if (Position + packet.Size > data.Header.Offset + data.Header.Length)
                     {
                         Logger.Warning("Audio packet header truncated !!");
-                        return false;
+                        return;
                     }
 
-                    Header.Stream.Position = packet.Offset;
+                    Position = packet.Offset;
 
                     int mode = 0;
                     int size = packet.Size;
@@ -80,10 +80,10 @@ public class Vorbis : WWiseRIFFFile
                             bool nextBlockFlag = false;
                             if (packet.Next + 2 <= data.Header.Offset + data.Header.Length)
                             {
-                                VorbisPacket nextPacket = new(Header.Stream, packet.Next);
+                                VorbisPacket nextPacket = new(_baseStream, packet.Next);
                                 if (nextPacket.Size > 0)
                                 {
-                                    Header.Stream.Position = nextPacket.Offset;
+                                    Position = nextPacket.Offset;
 
                                     bitStream.Position = nextPacket.Offset * 8;
 
@@ -94,7 +94,7 @@ public class Vorbis : WWiseRIFFFile
 
                             oggStream.Write(1, Convert.ToUInt32(prevBlockFlag));
                             oggStream.Write(1, Convert.ToUInt32(nextBlockFlag));
-                            Header.Stream.Position = packet.Offset + 1;
+                            Position = packet.Offset + 1;
                         }
 
                         prevBlockFlag = blockFlags[modeNumber];
@@ -106,11 +106,11 @@ public class Vorbis : WWiseRIFFFile
                     while (size > 0)
                     {
                         int count = Math.Clamp(size, 0, buffer.Length);
-                        int read = Header.Stream.Read(buffer[..count]);
+                        int read = Read(buffer[..count]);
                         if (read != count)
                         {
                             Logger.Warning("Audio packet truncated !!");
-                            return false;
+                            return;
                         }
                     
                         oggStream.Write(read * 8, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
@@ -123,10 +123,10 @@ public class Vorbis : WWiseRIFFFile
                     oggStream.Granule += prevBlockSize == 0 ? 0 : (prevBlockSize + blockSize) / 4;
                     prevBlockSize = blockSize;
 
-                    Header.Stream.Position = packet.Next;
+                    Position = packet.Next;
 
                     oggStream.Type &= ~OGGStream.PageType.Continued;
-                    if (Header.Stream.Position == data.Header.Offset + data.Header.Length)
+                    if (Position == data.Header.Offset + data.Header.Length)
                     {
                         oggStream.Type |= OGGStream.PageType.Tail;
                     }
@@ -138,20 +138,16 @@ public class Vorbis : WWiseRIFFFile
                     oggStream.FlushPacket(true);
                 }
 
-                if (Header.Stream.Position > data.Header.Offset + data.Header.Length)
+                if (Position > data.Header.Offset + data.Header.Length)
                 {
                     Logger.Warning("file truncated !!");
-                    return false;
+                    return;
                 }
-
-                oggStream.Close();
-                stream.Position = 0;
-                return true;
             }
         }
 
-        stream.Position = 0;
-        return false;
+        oggStream.Close();
+        destination.Position = 0;
     }
 
     private bool TryGenerateHeader(OGGStream oggStream, out bool[] blockFlags, out int modeBitCount)
@@ -192,16 +188,16 @@ public class Vorbis : WWiseRIFFFile
             if (Header.GetChunk(out DATA? data))
             {
                 WriteHeader(oggStream, VorbisHeaderType.Books);
-                VorbisPacket setupPacket = new(Header.Stream, data.Header.Offset + vorb.SeekTableSize);
+                VorbisPacket setupPacket = new(_baseStream, data.Header.Offset + vorb.SeekTableSize);
 
-                using BitStream bitStream = new(Header.Stream, leaveOpen: true);
+                using BitStream bitStream = new(_baseStream, leaveOpen: true);
                 bitStream.Position = setupPacket.Offset * 8;
 
                 uint prevCodebookCount = bitStream.Read(8);
                 oggStream.Write(8, prevCodebookCount);
                 uint codebookCount = prevCodebookCount + 1;
 
-                if (WWiseCodebook.TryOpen(Codebook, out WWiseCodebook? codebook))
+                if (Conversion.Codebook.TryOpen(Codebook, out Codebook? codebook))
                 {
                     try
                     {

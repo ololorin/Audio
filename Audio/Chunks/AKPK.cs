@@ -1,21 +1,24 @@
 ﻿using Audio.Entries;
+using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 
 namespace Audio.Chunks;
 public record AKPK : Chunk
 {
     public new const string Signature = "AKPK";
 
+    public string? Source { get; set; }
     public bool IsLittleEndian { get; set; }
     public long FolderListSize { get; set; }
     public long BankTableSize { get; set; }
     public long SoundTableSize { get; set; }
     public long ExternalTableSize { get; set; }
-    public Dictionary<uint, string> FoldersDict { get; set; } = [];
     public Folder[] Folders { get; set; } = [];
     public Bank[] Banks { get; set; } = [];
     public Sound[] Sounds { get; set; } = [];
     public External[] Externals { get; set; } = [];
 
+    [JsonIgnore]
     public IEnumerable<Entry> Entries
     {
         get
@@ -44,6 +47,7 @@ public record AKPK : Chunk
 
     public override void Read(BankReader reader)
     {
+        Source = reader.Source;
         IsLittleEndian = Convert.ToBoolean(reader.ReadInt32());
         if (!IsLittleEndian)
             throw new IOException("Package must be in Little-Endian format. Big-Endian format is nott supported");
@@ -59,11 +63,11 @@ public record AKPK : Chunk
         ReadExternals(reader);
     }
 
-    public void LoadBanks()
+    public void LoadBanks(BankReader reader)
     {
         foreach (Bank bank in Banks)
         {
-            bank.Parse(this);
+            bank.Parse(reader);
         }
     }
 
@@ -73,19 +77,13 @@ public record AKPK : Chunk
 
         int count = reader.ReadInt32();
         Folders = new Folder[count];
-        FoldersDict = new Dictionary<uint, string>(count);
         for (int i = 0; i < count; i++)
         {
             Folder folder = new(offset);
-            try
+            folder.Read(reader);
+            if (folder.ID < FolderListSize)
             {
-                folder.Read(reader);
-                Folders[i] = folder;
-                FoldersDict.Add(folder.ID, folder.Name ?? "");
-            }
-            catch (ArgumentException)
-            {
-                Console.WriteLine($"Duplicated Entry: Name: {folder.Name}, ID: {folder.ID}");
+                Folders[folder.ID] = folder;
             }
         }
 
@@ -98,9 +96,12 @@ public record AKPK : Chunk
         Banks = new Bank[count];
         for (int i = 0; i < count; i++)
         {
-            Bank bank = new() { Parent = this };
+            Bank bank = Banks[i] = new();
             bank.Read(reader);
-            Banks[i] = bank;
+            if (bank.FolderIndex < FolderListSize)
+            {
+                bank.Folder = Folders[bank.FolderIndex];
+            }
         }
     }
 
@@ -110,9 +111,12 @@ public record AKPK : Chunk
         Sounds = new Sound[count];
         for (int i = 0; i < count; i++)
         {
-            Sound sound = new() { Parent = this };
+            Sound sound = Sounds[i] = new();
             sound.Read(reader);
-            Sounds[i] = sound;
+            if (sound.FolderIndex < FolderListSize)
+            {
+                sound.Folder = Folders[sound.FolderIndex];
+            }
         }
     }
     private void ReadExternals(BankReader reader)
@@ -121,9 +125,12 @@ public record AKPK : Chunk
         Externals = new External[count];
         for (int i = 0; i < count; i++)
         {
-            External external = new() { Parent = this };
+            External external = Externals[i] = new();
             external.Read(reader);
-            Externals[i] = external;
+            if (external.FolderIndex < FolderListSize)
+            {
+                external.Folder = Folders[external.FolderIndex];
+            }
         }
     }
 }

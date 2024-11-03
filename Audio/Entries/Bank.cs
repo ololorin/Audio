@@ -1,52 +1,102 @@
 ﻿using Audio.Chunks;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Audio.Entries;
-public record Bank : TaggedEntry<uint>
+public record Bank : Entry
 {
+    private FNVID<uint> _id;
+
+    [JsonIgnore]
     public BKHD? BKHD { get; set; }
+    public Dictionary<string, Chunk> Chunks { get; set; } = [];
+
+    public override ulong ID => _id.Value;
+    public override string? Name => _id.ToString();
     public override string? Location => $"{base.Location}.bnk";
 
+    [JsonIgnore]
     public IEnumerable<Entry> Entries
     {
         get
         {
             yield return this;
 
-            foreach (EmbeddedSound embeddedSound in BKHD?.EmbeddedSounds ?? [])
+            if (GetChunk(out DIDX? didx) == true)
             {
-                embeddedSound.Bank ??= this;
-                yield return embeddedSound;
+                foreach (EmbeddedSound embeddedSound in didx.EmbeddedSounds)
+                {
+                    embeddedSound.Bank = this;
+                    yield return embeddedSound;
+                }
             }
         }
     }
 
-    public Bank() : base(EntryType.Bank) { }
-    public Bank(BKHD bkhd) : this()
+    public Bank() : base(EntryType.Bank)
+    {
+        _id = new();
+    }
+
+    public Bank(BKHD bkhd, string source) : base(EntryType.Bank)
     {
         BKHD = bkhd;
 
-        ID = bkhd.ID;
+        _id = bkhd.ID;
         Offset = 0;
-        if (!string.IsNullOrEmpty(bkhd.Source) && File.Exists(bkhd.Source))
+        if (File.Exists(source))
         {
-            Size = (uint)new FileInfo(bkhd.Source).Length;
+            Source = source;
+            Size = (int)new FileInfo(source).Length;
         }
     }
 
-    public void Parse(AKPK parent)
+    public override void Read(BankReader reader)
     {
-        using MemoryStream stream = new();
-        if (TryWrite(stream))
+        _id = reader.ReadUInt32();
+
+        base.Read(reader);
+    }
+    public void Parse(BankReader reader)
+    {
+        reader.BaseStream.Position = Offset;
+        reader.Root = BKHD;
+
+        while (reader.BaseStream.Position < Offset + Size)
         {
-            using BankReader reader = new(stream);
+            if (Chunk.TryParse(reader, out Chunk? chunk))
+            {
+                if (BKHD == null && chunk is BKHD bkhd)
+                {
+                    BKHD = bkhd;
+                    reader.Root = bkhd;
+                }
 
-            HeaderInfo header = new();
-            header.Read(reader);
-
-            BKHD = new BKHD(header) { Parent = parent };
-            BKHD.Read(reader);
-
-            header.Align(reader);
+                Chunks.Add(chunk.Header.Signature, chunk);
+            }
         }
+    }
+    public bool GetChunk<T>([NotNullWhen(true)] out T? chunk) where T : Chunk
+    {
+        string signature = typeof(T) switch
+        {
+            Type _ when typeof(T) == typeof(AKPK) => AKPK.Signature,
+            Type _ when typeof(T) == typeof(BKHD) => BKHD.Signature,
+            Type _ when typeof(T) == typeof(HIRC) => HIRC.Signature,
+            Type _ when typeof(T) == typeof(STMG) => STMG.Signature,
+            Type _ when typeof(T) == typeof(STID) => STID.Signature,
+            Type _ when typeof(T) == typeof(DIDX) => DIDX.Signature,
+            Type _ when typeof(T) == typeof(DATA) => DATA.Signature,
+            _ => throw new NotImplementedException(),
+        };
+
+        if (Chunks.TryGetValue(signature, out Chunk? chk))
+        {
+            chunk = (T)chk;
+            return true;
+        }
+
+        chunk = null;
+        return false;
     }
 }

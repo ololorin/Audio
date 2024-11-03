@@ -5,12 +5,12 @@ public record MusicSwitch : HIRCObject
     public MusicParameter Parameters { get; set; }
     public MusicTransitionRule[] TransitionRules { get; set; } = [];
     public bool IsContinuePlayback { get; set; }
-    public DecisionTree Tree { get; set; }
+    public DecisionTree DecisionTree { get; set; }
 
     public MusicSwitch(HeaderInfo header) : base(header)
     {
         Parameters = new();
-        Tree = new();
+        DecisionTree = new();
     }
 
     public override void Read(BankReader reader)
@@ -28,6 +28,6 @@ public record MusicSwitch : HIRCObject
         }
 
         IsContinuePlayback = reader.ReadByte() != 0;
-        Tree.Read(reader);
+        DecisionTree.Read(reader);
     }
 }

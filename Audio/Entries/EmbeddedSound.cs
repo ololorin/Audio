@@ -1,33 +1,37 @@
 ﻿using Audio.Chunks;
 
 namespace Audio.Entries;
-public record EmbeddedSound : TaggedEntry<uint>
+public record EmbeddedSound : AudioEntry
 {
     private Bank? _bank = null;
-    
-    public override string? Location => $"{base.Location}.wem";
-    public override string FolderName => $"{base.FolderName}/{Bank?.Name}";
+    private FNVID<uint> _id;
+
+    public override ulong ID => _id.Value;
+    public override string? Name => _id.ToString();
+    public override string? Location => $"{Folder?.Name ?? "None"}/{_bank?.Name}/{Name}{Extension}";
     public Bank? Bank
     {
-        get => _bank;
         set
         {
-            if (value != null && value.BKHD?.GetChunk(out DATA? data) == true)
+            if (_bank == null && value?.GetChunk(out DATA? data) == true)
             {
                 _bank = value;
                 Folder = _bank.Folder;
-                Parent = _bank.Parent ?? _bank.BKHD;
-                Offset += _bank.Offset + data.BaseOffset;
+                Source = _bank.Source;
+                Offset += data.BaseOffset;
             }
         }
     }
 
-    public EmbeddedSound() : base(EntryType.EmbeddedSound) { }
+    public EmbeddedSound() : base(EntryType.EmbeddedSound)
+    {
+        _id = new();
+    }
 
     public override void Read(BankReader reader)
     {
-        ID = FNVID<uint>.Read(reader);
+        _id = reader.ReadUInt32();
         Offset = reader.ReadUInt32();
-        Size = reader.ReadUInt32();
+        Size = reader.ReadInt32();
     }
 }

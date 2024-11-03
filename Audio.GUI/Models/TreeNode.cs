@@ -1,6 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 
 namespace Audio.GUI.Models;
@@ -16,7 +15,7 @@ public partial class TreeNode : ObservableObject
     private string name = "";
 
     [ObservableProperty]
-    private ObservableCollection<TreeNode> nodes = [];
+    private List<TreeNode> nodes = [];
 
     public IEnumerable<TreeNode> Checked
     {

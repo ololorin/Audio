@@ -1,7 +1,6 @@
 ﻿using Audio.Entries;
 using Audio.GUI.Models;
 using Audio.GUI.Services;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Models.TreeDataGrid;
 using Avalonia.Data;
@@ -12,8 +11,6 @@ using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Data;
 using System.IO;
 using System.Linq;
@@ -38,7 +35,7 @@ public partial class TreeViewModel : ViewModelBase
     private string searchText = "";
 
     [ObservableProperty]
-    private ObservableCollection<TreeNode> nodes;
+    private bool isEnabled;
 
     private IPlatformServiceProvider PlatformServiceProvider
     {
@@ -53,7 +50,7 @@ public partial class TreeViewModel : ViewModelBase
     {
         get
         {
-            foreach(TreeNode node in Nodes)
+            foreach(TreeNode node in Source.Items)
             {
                 foreach(TreeNode checkedNode in node.Checked)
                 {
@@ -63,22 +60,12 @@ public partial class TreeViewModel : ViewModelBase
         }
     } 
 
-    [DesignOnly(true)]
-    public TreeViewModel()
-    {
-        _audioManager = new();
-        _entryViewModel = new();
-        Nodes = [];
-        Source = new([]);
-    }
-
     public TreeViewModel(AudioManager audioManager, EntryViewModel entryViewModel)
     {
         _audioManager = audioManager;
         _entryViewModel = entryViewModel;
 
-        Nodes = [];
-        Source = new HierarchicalTreeDataGridSource<TreeNode>(Nodes)
+        Source = new HierarchicalTreeDataGridSource<TreeNode>([])
         {
             Columns =
             {
@@ -122,7 +109,7 @@ public partial class TreeViewModel : ViewModelBase
     {
         if (e.Key == Key.Enter)
         {
-            await Dispatcher.UIThread.InvokeAsync(Update);
+            await Update();
         }
     }
     [RelayCommand]
@@ -136,19 +123,35 @@ public partial class TreeViewModel : ViewModelBase
             }
         }
     }
-    public void Update()
+    public async Task Update()
     {
-        Nodes.Clear();
-        BuildTree(_audioManager.Entries);
+        IsEnabled = false;
+        List<TreeNode> nodes = await Task.Run(BuildTree);
+        await Dispatcher.UIThread.InvokeAsync(() => Source.Items = nodes);
+        IsEnabled = true;
     }
     private void TreeViewModel_SelectionChanged(object? sender, Avalonia.Controls.Selection.TreeSelectionModelSelectionChangedEventArgs<TreeNode> e)
     {
         if (e.SelectedItems.FirstOrDefault() is EntryTreeNode entryTreeNode)
         {
-            _entryViewModel.Entry = entryTreeNode.Entry;
+            _entryViewModel.Entry = entryTreeNode;
         }
     }
-    private void BuildTree(IEnumerable<Entry> entries, TreeNode? parent = null, int index = 0)
+    private List<TreeNode> BuildTree()
+    {
+        List<TreeNode> nodes = [];
+
+        IEnumerable<uint> targetIDs = _audioManager.Events.SelectMany(x => x.IDs).Select(x => x.Value).ToHashSet();
+        IEnumerable<Entry> eventEntries = _audioManager.Entries.Where(x => targetIDs.Contains((uint)x.ID));
+        IEnumerable<Entry> locationEntries = _audioManager.Entries.Except(eventEntries);
+
+        BuildEventTree(nodes, eventEntries);
+        BuildLocationTree(nodes, locationEntries);
+        Filter(nodes);
+
+        return nodes;
+    }
+    private void BuildLocationTree(List<TreeNode> nodes, IEnumerable<Entry> entries, TreeNode? parent = null, int index = 0)
     {
         foreach (IGrouping<string?, Entry> group in entries.Where(x => x.Location?.Split(_separators).Length > index).GroupBy(x => Path.ChangeExtension(x.Location?.Split(_separators)[index], null)))
         {
@@ -167,22 +170,55 @@ public partial class TreeViewModel : ViewModelBase
 
                 if (parent == null)
                 {
-                    Nodes.Add(node);
+                    nodes.Add(node);
                 }
                 else
                 {
                     parent.Nodes.Add(node);
                 }
 
-                BuildTree(group, node, index + 1);
+                BuildLocationTree(nodes, group, node, index + 1);
+            }
+        }
+    }
+    private void BuildEventTree(List<TreeNode> nodes, IEnumerable<Entry> entries)
+    {
+        ILookup<ulong, Entry> entryLookup = entries.ToLookup(x => x.ID);
 
-                for (int i = node.Nodes.Count - 1; i >= 0; i--)
+        foreach (EventInfo eventInfo in _audioManager.Events)
+        {
+            TreeNode eventNode = new() { Name = eventInfo.ID.ToString() };
+            nodes.Add(eventNode);
+
+            foreach (FNVID<uint> id in eventInfo.IDs)
+            {
+                foreach (Entry entry in entryLookup[id])
                 {
-                    if (node.Nodes[i] is TreeNode child && !child.HasMatch(SearchText) && child.Nodes.Count == 0)
-                    {
-                        node.Nodes.RemoveAt(i);
-                    }
+                    EntryTreeNode entryTreeNode = new(entry) { Name = entry.Name ?? "", EventInfo = eventInfo };
+                    eventNode.Nodes.Add(entryTreeNode);
                 }
+            }
+        }
+    }
+    void Filter(IList<TreeNode> nodes)
+    {
+        for (int i = nodes.Count - 1; i >= 0; i--)
+        {
+            TreeNode node = nodes[i];
+
+            if (node.HasMatch(SearchText))
+            {
+                continue;
+            }
+
+            if (node.Nodes.Count > 0)
+            {
+                Filter(node.Nodes);
+            }
+
+            if (node.Nodes.Count == 0)
+            {
+                nodes.RemoveAt(i);
             }
         }
     }

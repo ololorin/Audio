@@ -10,7 +10,7 @@ public class Program
     {
         Logger.TryRegister(new ConsoleLogger());
 
-        AudioManager manager = new() { Convert = o.Convert, Playlist = o.Playlist };
+        AudioManager manager = new() { Convert = o.Convert };
 
         List<string> files = [];
         if (Directory.Exists(o.Input))
@@ -44,9 +44,14 @@ public class Program
             {
                 o.Output.Create();
 
-                if (o.Hierarchy)
+                if (o.Info && Directory.Exists(o.Input))
                 {
-                    manager.DumpHierarchies(o.Output.FullName);
+                    manager.DumpInfos(o.Input, o.Output.FullName);
+                }
+
+                if (o.Event)
+                {
+                    manager.DumpEvents(o.Output.FullName);
                 }
 
                 if (o.Bank || o.Audio)

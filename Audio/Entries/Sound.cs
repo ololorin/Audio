@@ -1,7 +1,20 @@
 ﻿namespace Audio.Entries;
-public record Sound : TaggedEntry<uint>
+public record Sound : AudioEntry
 {
-    public override string? Location => $"{base.Location}.wem";
+    private FNVID<uint> _id;
 
-    public Sound() : base(EntryType.Sound) { }
+    public override ulong ID => _id.Value;
+    public override string? Name => _id.ToString();
+
+    public Sound() : base(EntryType.Sound)
+    {
+        _id = new();
+    }
+
+    public override void Read(BankReader reader)
+    {
+        _id = reader.ReadUInt32();
+
+        base.Read(reader);
+    }
 }

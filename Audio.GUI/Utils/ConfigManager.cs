@@ -13,7 +13,6 @@ public class ConfigManager
     public string? VOPath { get; set; }
     public string? EventPath { get; set; }
     public bool Convert { get; set; }
-    public bool Playlist { get; set; }
 
     public void Load()
     {
@@ -25,7 +24,6 @@ public class ConfigManager
             VOPath = clone?.VOPath ?? "";
             EventPath = clone?.EventPath ?? "";
             Convert = clone?.Convert ?? false;
-            Playlist = clone?.Playlist ?? false;
         }
         catch (Exception) { }
     }

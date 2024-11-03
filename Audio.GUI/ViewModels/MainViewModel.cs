@@ -63,7 +63,6 @@ public partial class MainViewModel : ViewModelBase
         ConfigManager.Instance.Load();
 
         Convert = ConfigManager.Instance.Convert;
-        Playlist = ConfigManager.Instance.Playlist;
     }
 
     [RelayCommand]

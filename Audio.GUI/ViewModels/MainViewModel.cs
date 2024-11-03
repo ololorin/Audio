@@ -2,7 +2,6 @@
 using Audio.GUI.Models;
 using Audio.GUI.Services;
 using Avalonia.Platform.Storage;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
@@ -23,8 +22,6 @@ public partial class MainViewModel : ViewModelBase
     private string? _lastDirectory;
     [ObservableProperty]
     private bool convert;
-    [ObservableProperty]
-    private bool playlist;
 
     private IPlatformServiceProvider? _platformServiceProvider;
     private IPlatformServiceProvider PlatformServiceProvider
@@ -248,14 +245,6 @@ public partial class MainViewModel : ViewModelBase
         _audioManager.Convert = value;
 
         ConfigManager.Instance.Convert = value;
-        ConfigManager.Instance.Save();
-    }
-
-    partial void OnPlaylistChanged(bool value)
-    {
-        _audioManager.Playlist = value;
-
-        ConfigManager.Instance.Playlist = value;
         ConfigManager.Instance.Save();
     }
 }

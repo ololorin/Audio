@@ -9,8 +9,6 @@ public class PTADPCM : RIFFStream
     private static readonly int[] SampleIndices = [2, 2, 1, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 1, 2, 2];
     private static readonly int MaxSampleIndex = 12;
 
-    public override string Extension => ".wav";
-
     public PTADPCM(Stream stream, RIFFHeader header) : base(stream, header) { }
 
     public override void CopyTo(Stream destination, int bufferSize = 81920)

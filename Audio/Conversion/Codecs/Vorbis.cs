@@ -8,8 +8,6 @@ public class Vorbis : RIFFStream
 {
     private const string Codebook = "packed_codebooks_aoTuV_603.bin";
 
-    public override string Extension => ".ogg";
-
     public Vorbis(Stream stream, RIFFHeader header) : base(stream, header) { }
 
     public override void CopyTo(Stream destination, int bufferSize = 81920)

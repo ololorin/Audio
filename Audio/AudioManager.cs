@@ -312,6 +312,7 @@ public class AudioManager
 
                 if (File.Exists(outputPath))
                 {
+                    count--;
                     continue;
                 }
 

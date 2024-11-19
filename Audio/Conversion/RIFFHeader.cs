@@ -1,4 +1,5 @@
 ﻿using Audio.Conversion.Chunks;
+using Audio.Conversion.Codecs;
 using Audio.Extensions;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
@@ -11,11 +12,47 @@ public record RIFFHeader
     private readonly long _offset;
     private readonly Dictionary<string, WAVEChunk> _chunks = [];
 
+    public string Extension
+    {
+        get
+        {
+            if (GetChunk(out FMT? fmt))
+            {
+                return fmt.Format switch
+                {
+                    WAVEFormat.VORBIS => ".ogg",
+                    WAVEFormat.PTADPCM => ".wav",
+                    _ => ".wem"
+                };
+            }
+
+            return ".wem";
+        }
+    }
+
     public long Offset => _offset;
 
     public RIFFHeader(Stream stream)
     {
         _offset = stream.Position;
+    }
+
+    public bool TryGetStream(Stream inputStream, [NotNullWhen(true)] out RIFFStream? audioStream)
+    {
+        if (GetChunk(out FMT? fmt))
+        {
+            audioStream = fmt.Format switch
+            {
+                WAVEFormat.VORBIS => new Vorbis(inputStream, this),
+                WAVEFormat.PTADPCM => new PTADPCM(inputStream, this),
+                _ => new RIFFStream(inputStream, this),
+            };
+
+            return true;
+        }
+
+        audioStream = null;
+        return false;
     }
 
     public bool GetChunk<T>([NotNullWhen(true)] out T? chunk) where T : WAVEChunk

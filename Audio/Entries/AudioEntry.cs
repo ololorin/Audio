@@ -4,15 +4,32 @@ using System.Text.Json.Serialization;
 namespace Audio.Entries;
 public abstract record AudioEntry : Entry, IDisposable
 {
-    private RIFFStream? _stream;
+    private RIFFHeader? _header;
 
     [JsonIgnore]
     public AudioManager? Manager { get; set; }
     [JsonIgnore]
     public bool Convert => Manager?.Convert ?? false;
     [JsonIgnore]
-    public string Extension => Convert && _stream != null ? _stream.Extension : ".wem";
+    public string Extension => Convert ? Header?.Extension ?? ".wem" : ".wem";
     public override string? Location => $"{base.Location}{Extension}";
+
+    private RIFFHeader? Header
+    {
+        get
+        {
+            if (_header == null)
+            {
+                MemoryStream ms = new();
+                if (base.TryWrite(ms))
+                {
+                    _header = RIFFHeader.Parse(ms);
+                }
+            }
+
+            return _header;
+        }
+    }
 
     protected AudioEntry(EntryType type) : base(type) { }
 
@@ -22,16 +39,11 @@ public abstract record AudioEntry : Entry, IDisposable
         {
             try
             {
-                if (_stream == null)
+                MemoryStream ms = new();
+                if (base.TryWrite(ms) && Header?.TryGetStream(ms, out RIFFStream? stream) == true)
                 {
-                    MemoryStream ms = new();
-                    if (base.TryWrite(ms) && RIFFStream.TryParse(ms, out RIFFStream? audioStream))
-                    {
-                        _stream = audioStream;
-                    }
+                    stream?.CopyTo(outStream);
                 }
-
-                _stream?.CopyTo(outStream);
             }
             catch (Exception e)
             {
@@ -47,9 +59,6 @@ public abstract record AudioEntry : Entry, IDisposable
 
     public void Dispose()
     {
-        _stream?.Dispose();
-        _stream = null;
-
         GC.SuppressFinalize(this);
     }
 }
